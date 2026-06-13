@@ -111,10 +111,18 @@ def _chunk(items: list[Any], size: int) -> Iterator[list[Any]]:
 class _FakeTicker:
     """Minimal ticker stand-in (the fields IBClient reads off a snapshot)."""
 
-    def __init__(self, bid: float = 0.0, ask: float = 0.0, last: float = 0.0) -> None:
+    def __init__(
+        self,
+        bid: float = 0.0,
+        ask: float = 0.0,
+        last: float = 0.0,
+        dividends: Optional[str] = None,
+    ) -> None:
         self.bid = bid
         self.ask = ask
         self.last = last
+        # IBDividends (generic tick 456) string: "past12m,next12m,exDivYYYYMMDD,amount".
+        self.dividends = dividends
 
 
 class MockIB:
@@ -129,12 +137,15 @@ class MockIB:
         self,
         quotes: Optional[dict[str, _FakeTicker]] = None,
         chains: Optional[dict[str, Any]] = None,
+        fundamentals: Optional[dict[str, Any]] = None,
     ) -> None:
         self._quotes = quotes or {}
         self._chains = chains or {}
+        self._fundamentals = fundamentals or {}
         self.req_mkt_data_calls: list[Any] = []
         self.cancel_mkt_data_calls: list[Any] = []
         self.req_chain_calls: list[str] = []
+        self.req_fundamental_calls: list[tuple[str, str]] = []
         self._open_lines = 0
         self.max_concurrent_lines = 0
         self.connected = False
@@ -164,6 +175,14 @@ class MockIB:
         return self._chains.get(
             symbol, {"symbol": symbol, "expirations": [], "strikes": []}
         )
+
+    # --- fundamentals (earnings calendar) --------------------------------- #
+    def reqFundamentalData(  # noqa: N802
+        self, contract: Any, report_type: str = "CalendarReport", *args: Any, **kwargs: Any
+    ) -> Any:
+        symbol = getattr(contract, "symbol", contract)
+        self.req_fundamental_calls.append((symbol, report_type))
+        return self._fundamentals.get(symbol)
 
 
 # --------------------------------------------------------------------------- #

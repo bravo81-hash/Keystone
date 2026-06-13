@@ -203,10 +203,22 @@ class Position(BaseModel):
 
 
 class Event(BaseModel):
-    """Calendar event placeholder. Fully exercised by the events package (Stage 2)."""
+    """Calendar event (earnings/dividend). Fully exercised by the events package."""
 
     symbol: str
     date: date
     kind: EventKind
     confirmed: bool = False
     meta: dict = Field(default_factory=dict)
+
+
+class DailyBar(BaseModel):
+    """One daily OHLCV bar. Shared primitive for earnings realized-moves (Stage 2)
+    and realized-vol / IV history (Stage 3) so they share one cached fetch."""
+
+    date: date
+    open: float
+    high: float = 0.0
+    low: float = 0.0
+    close: float = 0.0
+    volume: float = 0.0

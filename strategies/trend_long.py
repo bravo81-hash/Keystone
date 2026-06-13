@@ -112,8 +112,14 @@ def build_diagonal(
     long_delta: float = LEAPS_DELTA,
     short_delta: float = SHORT_CALL_DELTA,
     family: Family = Family.TREND_DIAGONAL,
+    enforce_sleeve_cap: bool = True,
 ) -> Optional[Suggestion]:
-    """Long LEAPS + short near-dated option (reused by SMSF PMCC, Stage 7)."""
+    """Long LEAPS + short near-dated option.
+
+    Reused by the SMSF PMCC wrapper (Stage 7) with ``enforce_sleeve_cap=False``:
+    PMCC is core-replacement sized by the SMSF buckets (Stage 8), not the small
+    trading trend sleeve.
+    """
 
     long_exp = _expiry(ctx, LEAPS_TARGET_DTE, LEAPS_MIN_DTE, LEAPS_MAX_DTE)
     short_exp = _expiry(ctx, SHORT_TARGET_DTE, SHORT_MIN_DTE, SHORT_MAX_DTE)
@@ -125,7 +131,7 @@ def build_diagonal(
         return None
 
     net_debit = (long_q.mid - short_q.mid) * MULTIPLIER
-    if _sleeve_breach(ctx, net_debit):
+    if enforce_sleeve_cap and _sleeve_breach(ctx, net_debit):
         return None
 
     legs = [

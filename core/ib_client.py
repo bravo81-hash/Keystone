@@ -138,14 +138,18 @@ class MockIB:
         quotes: Optional[dict[str, _FakeTicker]] = None,
         chains: Optional[dict[str, Any]] = None,
         fundamentals: Optional[dict[str, Any]] = None,
+        history: Optional[dict[tuple[str, str], Any]] = None,
     ) -> None:
         self._quotes = quotes or {}
         self._chains = chains or {}
         self._fundamentals = fundamentals or {}
+        # keyed by (symbol, whatToShow) -> list of bars
+        self._history = history or {}
         self.req_mkt_data_calls: list[Any] = []
         self.cancel_mkt_data_calls: list[Any] = []
         self.req_chain_calls: list[str] = []
         self.req_fundamental_calls: list[tuple[str, str]] = []
+        self.req_historical_calls: list[tuple[str, str]] = []
         self._open_lines = 0
         self.max_concurrent_lines = 0
         self.connected = False
@@ -183,6 +187,22 @@ class MockIB:
         symbol = getattr(contract, "symbol", contract)
         self.req_fundamental_calls.append((symbol, report_type))
         return self._fundamentals.get(symbol)
+
+    # --- historical data -------------------------------------------------- #
+    def reqHistoricalData(  # noqa: N802
+        self,
+        contract: Any,
+        endDateTime: str = "",  # noqa: N803 (match ib_insync API)
+        durationStr: str = "1 Y",  # noqa: N803
+        barSizeSetting: str = "1 day",  # noqa: N803
+        whatToShow: str = "TRADES",  # noqa: N803
+        useRTH: bool = True,  # noqa: N803
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        symbol = getattr(contract, "symbol", contract)
+        self.req_historical_calls.append((symbol, whatToShow))
+        return self._history.get((symbol, whatToShow), [])
 
 
 # --------------------------------------------------------------------------- #

@@ -1,0 +1,38 @@
+# Keystone — account topology.
+#
+# Default topology: 3 trading (margin) + 1 investing (SMSF, cash).
+# The SMSF cash account's ONLY structural restriction is multi-expiry combos on
+# European cash-settled index options (SPX/RUT/NDX/XSP) -> blocked_rule below.
+# American-style instruments (stocks, SPY/QQQ/IWM, ES) are unrestricted there.
+#
+# USER MUST EDIT: replace the placeholder account_id values with your real IBKR
+# account IDs, and set each account's nlv (net liquidation value, USD).
+
+base_currency: USD
+
+accounts:
+  - account_id: "REPLACE-TRADING-1"   # <- real IBKR margin account id
+    label: "Trading 1 (margin)"
+    pool: trading
+    nlv: 100000.0
+    blocked_rules: []
+
+  - account_id: "REPLACE-TRADING-2"
+    label: "Trading 2 (margin)"
+    pool: trading
+    nlv: 100000.0
+    blocked_rules: []
+
+  - account_id: "REPLACE-TRADING-3"
+    label: "Trading 3 (margin)"
+    pool: trading
+    nlv: 100000.0
+    blocked_rules: []
+
+  - account_id: "REPLACE-SMSF"        # <- real IBKR SMSF cash account id
+    label: "SMSF (cash)"
+    pool: investing
+    nlv: 92000.0                       # ~AUD 140k / ~USD 92k (verify before live)
+    blocked_rules:
+      - instrument_class: EU_CASH_INDEX
+        multi_expiry: true             # block multi-expiry combos on SPX/RUT/NDX/XSP

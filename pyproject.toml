@@ -1,0 +1,31 @@
+[project]
+name = "keystone"
+version = "0.1.0"
+description = "Keystone — low-touch stock/ETF options trading + investing system for IBKR"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+    "flask>=3.0",
+    "pydantic>=2.5",
+    "pyyaml>=6.0",
+    # IANA tz database for zoneinfo (required on Windows; NY-anchored app).
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+# Live TWS connectivity. Not required for tests (MockIB is used in CI).
+live = ["ib_insync>=0.9.86"]
+dev = ["pytest>=8.0"]
+
+# Keystone uses a flat, top-level package layout (core/, portfolio/, ui/, ...)
+# rather than a src/ layout. The repo root *is* the application root. Tests add
+# the root to sys.path via the pytest `pythonpath` setting below — no editable
+# install required.
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

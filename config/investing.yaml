@@ -1,0 +1,49 @@
+# Keystone — SMSF investing core (Stage 7 consumes these).
+#
+# ============================================================================
+# USER MUST EDIT BEFORE LIVE USE.
+# ============================================================================
+# target_holdings is the SMSF core you accumulate (primarily via the wheel,
+# not market buys). Each holding: ticker, target_weight (fraction of NLV),
+# optional acquire_below_price, is_etf. Holdings should pass SMSF affordability
+# (single 100*price <= 12% NLV, ETF <= 25%). The list below is a placeholder
+# scaffold of liquid, affordable names/ETFs — REVIEW AND REPLACE with your
+# actual targets and prices.
+
+smsf_nlv: 92000.0
+
+pmcc_enabled: false   # PMCC family OFF by default (design doc SS5)
+
+target_holdings:
+  - ticker: XLE        # Energy Select Sector SPDR (ETF)
+    target_weight: 0.15
+    acquire_below_price: 85.0
+    is_etf: true
+  - ticker: XLF        # Financials Select Sector SPDR (ETF)
+    target_weight: 0.15
+    acquire_below_price: 42.0
+    is_etf: true
+  - ticker: XLU        # Utilities Select Sector SPDR (ETF)
+    target_weight: 0.15
+    acquire_below_price: 70.0
+    is_etf: true
+  - ticker: TLT        # 20+yr Treasury (ETF)
+    target_weight: 0.10
+    acquire_below_price: 95.0
+    is_etf: true
+  - ticker: GDX        # Gold miners (ETF)
+    target_weight: 0.10
+    acquire_below_price: 35.0
+    is_etf: true
+  - ticker: F          # Ford — affordable single name placeholder
+    target_weight: 0.10
+    acquire_below_price: 11.0
+    is_etf: false
+  - ticker: SOFI       # affordable single name placeholder
+    target_weight: 0.10
+    acquire_below_price: 8.0
+    is_etf: false
+  - ticker: T          # AT&T — affordable single name placeholder
+    target_weight: 0.15
+    acquire_below_price: 22.0
+    is_etf: false

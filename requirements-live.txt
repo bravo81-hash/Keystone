@@ -1,0 +1,5 @@
+# Live IBKR TWS / Gateway connectivity. Install only on the machine that talks
+# to TWS. core/ib_client.py imports ib_insync lazily (inside connect()) so the
+# rest of Keystone — and the whole test suite — runs without it.
+-r requirements.txt
+ib_insync>=0.9.86

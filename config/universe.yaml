@@ -1,0 +1,22 @@
+# Keystone — universe screen settings (Stage 1 consumes these).
+#
+# These are documented defaults that mirror the design-doc hard gates. Adjust
+# only if you understand the pacing/liquidity trade-offs.
+
+smsf_nlv: 92000.0                  # USD; drives SMSF affordability flags
+smsf_affordability_single_pct: 12.0   # 100*price <= 12% NLV  (single name)
+smsf_affordability_etf_pct: 25.0      # 100*price <= 25% NLV  (is_etf)
+
+screened_max_age_days: 7           # consumers treat a staler screened.json as empty
+
+gates:
+  min_last_price: 30.0             # last price >= $30
+  max_atm_spread_front: 0.05       # ATM bid-ask <= 5% of mid, front expiry
+  max_atm_spread_back: 0.08        # ATM bid-ask <= 8% of mid, back expiry
+  min_consecutive_weeklies: 4      # front 4 consecutive weekly expiries listed
+  min_option_adv: 5000             # option ADV >= 5000 contracts/day
+  min_open_interest: 1000          # OI >= 1000 near ATM
+
+# Optional manual universe tweaks (seed lives in universe/seed.py).
+extra_tickers: []
+excluded_tickers: []

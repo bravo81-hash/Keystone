@@ -139,17 +139,22 @@ class MockIB:
         chains: Optional[dict[str, Any]] = None,
         fundamentals: Optional[dict[str, Any]] = None,
         history: Optional[dict[tuple[str, str], Any]] = None,
+        whatif: Optional[dict[str, Any]] = None,
     ) -> None:
         self._quotes = quotes or {}
         self._chains = chains or {}
         self._fundamentals = fundamentals or {}
         # keyed by (symbol, whatToShow) -> list of bars
         self._history = history or {}
+        # symbol -> whatIf result dict (accepted/margins); default accepts.
+        self._whatif = whatif or {}
         self.req_mkt_data_calls: list[Any] = []
         self.cancel_mkt_data_calls: list[Any] = []
         self.req_chain_calls: list[str] = []
         self.req_fundamental_calls: list[tuple[str, str]] = []
         self.req_historical_calls: list[tuple[str, str]] = []
+        self.whatif_calls: list[Any] = []
+        self.placed_orders: list[tuple[Any, Any]] = []
         self._open_lines = 0
         self.max_concurrent_lines = 0
         self.connected = False
@@ -203,6 +208,19 @@ class MockIB:
         symbol = getattr(contract, "symbol", contract)
         self.req_historical_calls.append((symbol, whatToShow))
         return self._history.get((symbol, whatToShow), [])
+
+    # --- orders ----------------------------------------------------------- #
+    def whatIfOrder(self, contract: Any, order: Any) -> dict:  # noqa: N802
+        symbol = getattr(contract, "symbol", contract)
+        self.whatif_calls.append((symbol, order))
+        return self._whatif.get(
+            symbol,
+            {"accepted": True, "init_margin": 0.0, "maint_margin": 0.0, "equity_with_loan": 0.0},
+        )
+
+    def placeOrder(self, contract: Any, order: Any) -> Any:  # noqa: N802
+        self.placed_orders.append((contract, order))
+        return order
 
 
 # --------------------------------------------------------------------------- #

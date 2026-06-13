@@ -1,0 +1,17 @@
+ticker,date,confirmed
+# Manual earnings overrides (Stage 1 source; Stage 2 adds IBKR/Finnhub).
+# date is ISO YYYY-MM-DD (the next confirmed report date). confirmed: true/false.
+# Names not listed here resolve to "unknown" -> the screen hard-skips them until
+# Stage 2 wires automatic sources. USER: keep this current for any names you trade.
+AAPL,2026-07-30,true
+MSFT,2026-07-28,true
+NVDA,2026-08-26,true
+AMZN,2026-07-30,true
+GOOGL,2026-07-28,true
+META,2026-07-29,true
+TSLA,2026-07-22,true
+AMD,2026-07-28,false
+JPM,2026-07-14,true
+LLY,2026-08-06,true
+XOM,2026-07-31,true
+HD,2026-08-18,true

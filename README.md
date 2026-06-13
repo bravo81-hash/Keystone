@@ -63,12 +63,38 @@ tests/       pytest suite (MockIB)
 python -m venv .venv
 # Windows:  .venv\Scripts\activate     POSIX: source .venv/bin/activate
 pip install -r requirements.txt
-pytest                       # 220 tests, uses MockIB (no TWS)
-python -m ui.app             # Flask shell: /health and the five panels
+pytest                       # 242 tests, uses MockIB (no TWS)
+python -m ui.app             # dark-theme UI; opens in MOCK mode (populated demo)
 ```
 
+The UI starts in **mock mode** — a fully populated demo (real ranker cards,
+alerts, stress) so you can explore without TWS. Switch to **live** from the
+status bar. A built-in **Guide** documents every selection criterion (screen
+gates, regime states, per-strategy rules, mandates, budgets, alert severities),
+and key terms have hover tooltips.
+
 Live TWS data/execution: `pip install -r requirements-live.txt` and run
-TWS/Gateway with the API enabled (`core.ib_client.IBClient.connect`).
+TWS/Gateway with the API enabled.
+
+## Connecting to TWS, accounts, and data sources
+
+- **TWS connection.** Defaults to `127.0.0.1:7496` (live; 7497 = paper). Each
+  operation opens a fresh, short-lived connection with a **dynamic clientId**
+  (random, retried on collision) in its own thread/event loop — so Keystone
+  never clashes with your other apps connected to the same TWS
+  (`core.ib_client.with_ib` / `connect_ib`).
+- **Account selection.** Open **Connect** (status bar) to list your TWS managed
+  accounts + NLV (`managedAccounts` + `accountSummary`); click **select** to set
+  the active account. Each account's pool/mandate drives candidate generation
+  and staging.
+- **Data fallback.** When live TWS data isn't available, Keystone falls back
+  automatically: **TWS → yfinance → Finnhub (free tier)**
+  (`core.market_data.build_market_data`). yfinance needs no key; Finnhub uses
+  your saved key for last-price quotes.
+- **API key, saved once.** Enter your Finnhub key on the **Settings** page; it's
+  written to `~/.keystone/secrets.yaml` (override the dir with `KEYSTONE_HOME`)
+  and reused every run — no re-entering. An env var (`FINNHUB_KEY`,
+  `KEYSTONE_TWS_HOST/PORT`) still overrides the saved value when set.
 
 ## Config files to fill (before live use)
 

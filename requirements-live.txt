@@ -1,5 +1,8 @@
-# Live IBKR TWS / Gateway connectivity. Install only on the machine that talks
-# to TWS. core/ib_client.py imports ib_insync lazily (inside connect()) so the
-# rest of Keystone — and the whole test suite — runs without it.
+# Live IBKR TWS / Gateway connectivity + free-tier data fallback. Install only on
+# the machine that talks to TWS. core/ib_client.py imports ib_insync lazily, and
+# core/market_data.py imports yfinance lazily, so the rest of Keystone — and the
+# whole test suite — runs without either installed.
 -r requirements.txt
 ib_insync>=0.9.86
+yfinance>=0.2.40   # free fallback for prices/history when TWS data is unavailable
+# Finnhub (free tier) is used via plain HTTP (stdlib) — no package required.

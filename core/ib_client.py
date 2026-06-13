@@ -16,6 +16,10 @@ a :class:`MockIB`; CI never opens a live connection.
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import random
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -23,8 +27,14 @@ from enum import Enum
 from typing import Any, Callable, Iterable, Iterator, Optional
 from zoneinfo import ZoneInfo
 
+logger = logging.getLogger(__name__)
+
 NY = ZoneInfo("America/New_York")
 FRIDAY = 4  # datetime.weekday(): Monday=0 .. Sunday=6
+
+# Live TWS defaults (paper = 7497). Overridable via core.settings / the UI.
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 7496
 
 
 # --------------------------------------------------------------------------- #
@@ -140,7 +150,11 @@ class MockIB:
         fundamentals: Optional[dict[str, Any]] = None,
         history: Optional[dict[tuple[str, str], Any]] = None,
         whatif: Optional[dict[str, Any]] = None,
+        managed_accounts: Optional[list[str]] = None,
+        account_summary: Optional[list] = None,
     ) -> None:
+        self._managed_accounts = managed_accounts or []
+        self._account_summary = account_summary or []
         self._quotes = quotes or {}
         self._chains = chains or {}
         self._fundamentals = fundamentals or {}
@@ -221,6 +235,16 @@ class MockIB:
     def placeOrder(self, contract: Any, order: Any) -> Any:  # noqa: N802
         self.placed_orders.append((contract, order))
         return order
+
+    # --- accounts --------------------------------------------------------- #
+    def managedAccounts(self) -> list[str]:  # noqa: N802
+        return list(self._managed_accounts)
+
+    def accountSummary(self, account: str = "All") -> list:  # noqa: N802
+        return list(self._account_summary)
+
+    def disconnect(self) -> None:
+        self.connected = False
 
 
 # --------------------------------------------------------------------------- #
@@ -321,3 +345,140 @@ class IBClient:
     def clear_caches(self) -> None:
         self._chain_cache.clear()
         self._quote_cache.clear()
+
+
+# --------------------------------------------------------------------------- #
+# Ephemeral live connections (dynamic clientId, fresh thread + event loop)
+# --------------------------------------------------------------------------- #
+# A DYNAMIC clientId is used on every connection so Keystone never collides with
+# your other apps connected to the same TWS. We draw a random id and retry with a
+# new one if TWS reports the id is already in use.
+CLIENT_ID_MIN = 100
+CLIENT_ID_MAX = 9999
+
+
+def _default_client_ids() -> Iterator[int]:
+    while True:
+        yield random.randint(CLIENT_ID_MIN, CLIENT_ID_MAX)
+
+
+def ib_module():
+    """Import the IBKR API module — ib_insync, or its maintained fork ib_async."""
+
+    try:
+        import ib_insync as module
+    except ImportError:
+        import ib_async as module  # drop-in successor (same API)
+    return module
+
+
+def _is_client_id_collision(exc: Exception) -> bool:
+    """True if the connect error is a clientId clash (worth retrying a new id)."""
+
+    msg = str(exc).lower()
+    return "client id" in msg or "clientid" in msg or "326" in msg
+
+
+def _resolve_host_port(host: Optional[str], port: Optional[int]) -> tuple[str, int]:
+    if host is not None and port is not None:
+        return host, port
+    from core.settings import get_tws_host, get_tws_port  # lazy: avoid import cycle
+
+    return (host or get_tws_host()), (port if port is not None else get_tws_port())
+
+
+def connect_ib(
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    *,
+    ib_factory: Optional[Callable[[], Any]] = None,
+    client_ids: Optional[Iterable[int]] = None,
+    max_attempts: int = 8,
+    timeout: float = 10.0,
+) -> tuple[Any, int]:
+    """Connect to TWS with a dynamic clientId, retrying on collision.
+
+    Returns ``(ib, client_id)``. ``ib_factory`` builds a fresh ``IB()`` (lazily
+    imports ib_insync by default) so tests can inject a fake. Raises after
+    ``max_attempts`` exhausted ids.
+    """
+
+    host, port = _resolve_host_port(host, port)
+    if ib_factory is None:
+        def ib_factory():
+            return ib_module().IB()
+
+    ids = iter(client_ids) if client_ids is not None else _default_client_ids()
+    last_error: Optional[Exception] = None
+    for _ in range(max_attempts):
+        try:
+            client_id = next(ids)
+        except StopIteration:
+            break
+        ib = ib_factory()
+        try:
+            ib.connect(host, port, clientId=client_id, timeout=timeout)
+            logger.info("connected to TWS %s:%s as clientId %s", host, port, client_id)
+            return ib, client_id
+        except Exception as exc:  # noqa: BLE001 - surfaced to caller after retries
+            last_error = exc
+            try:
+                if ib.isConnected():
+                    ib.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+            logger.warning("TWS connect attempt with clientId %s failed: %s", client_id, exc)
+            # Only a clientId clash is worth retrying with a fresh id; anything
+            # else (TWS down, refused, timeout, API disabled) fails fast.
+            if not _is_client_id_collision(exc):
+                break
+    raise ConnectionError(
+        f"could not connect to TWS {host}:{port}: {last_error}"
+    )
+
+
+def with_ib(
+    fn: Callable[[Any], Any],
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    *,
+    ib_factory: Optional[Callable[[], Any]] = None,
+    client_ids: Optional[Iterable[int]] = None,
+    timeout: float = 10.0,
+    join_timeout: float = 120.0,
+) -> Any:
+    """Run ``fn(ib)`` on a fresh, dynamic-clientId connection then disconnect.
+
+    The connection lives in its own thread with its own asyncio event loop (so it
+    never fights Flask's loop), mirroring the proven pattern from the index book.
+    Re-raises any error from the worker.
+    """
+
+    out: dict[str, Any] = {}
+
+    def target() -> None:
+        try:
+            asyncio.set_event_loop(asyncio.new_event_loop())
+        except Exception:  # noqa: BLE001
+            pass
+        ib = None
+        try:
+            ib, _cid = connect_ib(
+                host, port, ib_factory=ib_factory, client_ids=client_ids, timeout=timeout
+            )
+            out["result"] = fn(ib)
+        except Exception as exc:  # noqa: BLE001
+            out["error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            try:
+                if ib is not None and ib.isConnected():
+                    ib.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(timeout=join_timeout)
+    if "error" in out:
+        raise ConnectionError(out["error"])
+    return out.get("result")

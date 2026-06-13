@@ -134,6 +134,25 @@ def default_topology() -> list[AccountProfile]:
     ]
 
 
+def list_managed_accounts(ib: object) -> list[dict]:
+    """Discover the TWS managed accounts + their NLV (one accountSummary call).
+
+    Returns ``[{"account": id, "nlv": float|None}, ...]``. Used by the UI account
+    selector. ``ib`` is a connected ib_insync IB (or MockIB).
+    """
+
+    rows = ib.accountSummary()
+    accounts: list[dict] = []
+    for acct in ib.managedAccounts():
+        nlv = next(
+            (float(r.value) for r in rows
+             if getattr(r, "account", None) == acct and getattr(r, "tag", None) == "NetLiquidation"),
+            None,
+        )
+        accounts.append({"account": acct, "nlv": nlv})
+    return accounts
+
+
 def from_config(accounts_config: AccountsConfig) -> list[AccountProfile]:
     """Build ``AccountProfile`` objects from a loaded ``AccountsConfig``."""
 

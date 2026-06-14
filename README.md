@@ -112,6 +112,19 @@ TWS/Gateway with the API enabled.
   (overrides IBKR/Finnhub). Keep current for names you trade.
 - `FINNHUB_KEY` env var — optional earnings fallback.
 
+## Weekly checkpoint scan (the homework engine)
+
+In **live** mode, **Connect** → pick your account → **Run weekly checkpoint**.
+The scan reads the market regime (VIX complex + SPY/200DMA) and builds option
+chains for a watchlist from **yfinance with Black-Scholes-computed greeks** — so
+it needs no market-data subscription and works on a closed market using Friday's
+data (ideal for weekend prep). It runs the screen → regime → ranker and shows
+**candidate cards** with legs, net **credit/debit**, max profit/loss, **greeks**,
+an **OptionStrat** link, and a **Stage to TWS** button. Staging runs a whatIf
+margin check and places the combo **untransmitted** (`transmit=False`) in TWS for
+you to review and send manually. (Chains/greeks via yfinance; TWS for accounts +
+staging.)
+
 ## Run procedure
 
 **Weekly checkpoint (slow clock):**

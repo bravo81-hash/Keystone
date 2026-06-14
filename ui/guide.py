@@ -157,8 +157,20 @@ def render_guide() -> str:
         (k, v["sleeve"], v["when"], v["structure"], v["dte"], v["manage"])
         for k, v in STRATEGIES.items()
     ]
+    workflow = [
+        "<b>Weekend homework (slow clock):</b> connect to TWS, pick your account, hit "
+        "<b>Run weekly checkpoint</b>. It reads the market regime and scans a watchlist's "
+        "option chains (yfinance + Black-Scholes greeks, so it works on a closed market using "
+        "Friday's data), then shows candidate cards to study.",
+        "<b>Weekday live hours (fast clock):</b> re-run on the day; when a candidate still fits, "
+        "click <b>Stage to TWS</b> — it whatIf-checks margin and places the combo UNTRANSMITTED "
+        "(transmit=False) in TWS for you to review and send manually.",
+        "Data: chains/greeks come from yfinance (free, no subscription); TWS is used for your "
+        "accounts and staging. Use the OptionStrat link on each card to visualise the trade.",
+    ]
     out = [
         "<p class='muted'>Why a name and a structure get picked — the criteria enforced in code.</p>",
+        "<h3>Workflow</h3><ul>" + "".join(f"<li>{w}</li>" for w in workflow) + "</ul>",
         "<h3>Universe screen — stock / ETF eligibility</h3>",
         _rows([(g, c, why) for g, c, why in SCREEN_GATES], ["gate", "threshold", "why"]),
         f"<p class='muted'>{escape(AFFORDABILITY)}</p><p class='muted'>{escape(TIERS)}</p>",

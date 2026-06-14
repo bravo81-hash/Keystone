@@ -52,7 +52,7 @@ def test_mock_mode_dashboard_is_populated(fresh_settings):
     assert "CALM_TREND" in html  # regime read
     assert "Trading 1 (mock)" in html  # mock account label
     assert ("put_credit_spread" in html or "iron_condor" in html)  # real ranker cards
-    assert "--bg:#0d1117" in html  # dark theme present
+    assert "--bg: #090b10" in html  # dark theme present
 
 
 def test_guide_page_has_criteria(fresh_settings):
@@ -71,3 +71,38 @@ def test_mode_toggle(fresh_settings):
 
 def test_health_reports_mode(fresh_settings):
     assert create_app(mode="mock").test_client().get("/health").get_json()["mode"] == "mock"
+
+
+def test_cards_are_enriched(fresh_settings):
+    html = create_app(mode="mock").test_client().get("/").data.decode()
+    assert "Stage to TWS" in html  # action button
+    assert "OptionStrat" in html  # deep link
+    assert "greeks:" in html  # net delta etc.
+    assert "max loss" in html  # defined risk
+    assert ("credit $" in html or "debit $" in html)  # net
+
+
+def test_stage_button_works_in_mock(fresh_settings):
+    app = create_app(mode="mock")
+    client = app.test_client()
+    client.get("/")  # build + cache the mock state
+    state = app.config["KEYSTONE_MOCK_STATE"]
+    account = next(a for a, cs in state.cards.items() if cs)
+    sugg = state.cards[account][0]
+    resp = client.post("/stage", data={"account": account, "sig": sugg.signature()})
+    assert resp.status_code == 200
+    body = resp.data.decode()
+    assert "transmit=False" in body
+    assert "whatIf accepted" in body
+
+
+def test_stage_unknown_candidate(fresh_settings):
+    resp = create_app(mode="mock").test_client().post("/stage", data={"account": "X", "sig": "nope"})
+    assert resp.status_code == 200
+    assert b"not found" in resp.data
+
+
+def test_scan_route_redirects_in_mock(fresh_settings):
+    # /scan is a live action; in mock mode it just bounces home (no network).
+    resp = create_app(mode="mock").test_client().get("/scan")
+    assert resp.status_code in (302, 303)

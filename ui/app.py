@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, current_app, jsonify, redirect, request
 
 from core import settings as ksettings
+from execution.optionstrat_links import optionstrat_url
 from ui import guide as kguide
 from ui.state import AppState
 
@@ -30,52 +31,476 @@ _PANELS = [
 ]
 
 _CSS = """
-:root{--bg:#0d1117;--panel:#161b22;--panel2:#1c2330;--border:#30363d;--text:#e6edf3;
---muted:#9aa7b4;--accent:#58a6ff;--ok:#3fb950;--warn:#d29922;--crit:#f85149}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);
-font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-.container{max-width:1140px;margin:0 auto;padding:22px 20px 60px}
-h1{font-size:1.5rem;margin:0;color:#fff;letter-spacing:.4px}
-h2{font-size:1.15rem;color:var(--accent);border-bottom:1px solid var(--border);
-padding-bottom:6px;margin:22px 0 6px}
-h3{color:var(--muted);font-size:.82rem;letter-spacing:.06em;text-transform:uppercase;margin:20px 0 6px}
-a{color:var(--accent);text-decoration:none}
-a:hover{text-decoration:underline}
-p{margin:8px 0}
-.statusbar{background:var(--panel);border:1px solid var(--border);border-radius:8px;
-padding:9px 13px;margin:12px 0;font-size:.9rem;color:var(--muted);
-display:flex;gap:8px 16px;flex-wrap:wrap;align-items:center}
-.statusbar b{color:var(--text)}
-.nav{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 4px}
-.nav a{padding:6px 11px;border-radius:7px;background:var(--panel);border:1px solid var(--border)}
-.nav a:hover{background:var(--panel2);text-decoration:none}
-hr{border:none;border-top:1px solid var(--border);margin:14px 0}
-table{width:100%;border-collapse:collapse;margin:10px 0;background:var(--panel);
-border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:.92rem}
-th,td{padding:8px 11px;text-align:left;border-bottom:1px solid var(--border)}
-th{background:var(--panel2);color:var(--muted);font-weight:600;font-size:.76rem;
-letter-spacing:.04em;text-transform:uppercase}
-tr:last-child td{border-bottom:none}
-tbody tr:hover td,table tr:hover td{background:rgba(255,255,255,.025)}
-.card{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);
-border-radius:8px;padding:11px 14px;margin:9px 0}
-.card .fam{font-weight:600;color:#fff}
-.muted{color:var(--muted)}.ok{color:var(--ok)}.err{color:var(--crit)}
-.badge{display:inline-block;padding:2px 9px;border-radius:11px;font-size:.74rem;font-weight:700}
-.badge.INFO{background:rgba(88,166,255,.16);color:var(--accent)}
-.badge.WARN{background:rgba(210,153,34,.18);color:var(--warn)}
-.badge.CRITICAL{background:rgba(248,81,73,.18);color:var(--crit)}
-.pill{display:inline-block;background:var(--panel2);border:1px solid var(--border);
-border-radius:11px;padding:1px 9px;color:var(--text);font-size:.82rem}
-button,.btn{background:var(--accent);color:#08111f;border:none;border-radius:6px;
-padding:5px 11px;font-weight:600;cursor:pointer;font-size:.85rem}
-button:hover,.btn:hover{filter:brightness(1.12);text-decoration:none}
-input{background:var(--panel2);border:1px solid var(--border);color:var(--text);
-border-radius:6px;padding:7px 9px;font-size:.95rem}
-code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:.88em}
-th[title],span[title]{border-bottom:1px dotted var(--muted);cursor:help}
-ul{margin:8px 0;padding-left:20px}li{margin:4px 0}
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap');
+
+:root {
+  --bg: #090b10;
+  --panel: #0f141f;
+  --panel2: #162030;
+  --border: #1e283c;
+  --border-light: #2c3c58;
+  --text: #f0f4f9;
+  --muted: #8e9faa;
+  --accent: #3a86ff;
+  --accent-hover: #5a9bff;
+  --accent-glow: rgba(58, 134, 255, 0.12);
+  --ok: #00e676;
+  --ok-bg: rgba(0, 230, 118, 0.08);
+  --warn: #ffb300;
+  --warn-bg: rgba(255, 179, 0, 0.08);
+  --crit: #ff3d00;
+  --crit-bg: rgba(255, 61, 0, 0.08);
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', "SF Mono", Cascadia Code, Consolas, monospace;
+  --font-display: 'Outfit', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+h1 {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.5px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+h1::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 24px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+h2 {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #fff;
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 8px;
+  margin: 28px 0 16px;
+}
+
+h3 {
+  font-family: var(--font-display);
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 24px 0 10px;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+a:hover {
+  color: var(--accent-hover);
+  text-decoration: none;
+}
+
+p {
+  margin: 8px 0;
+}
+
+.statusbar {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 16px 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+  display: flex;
+  gap: 12px 24px;
+  flex-wrap: wrap;
+  align-items: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.statusbar b {
+  color: var(--text);
+}
+
+.statusbar a {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.statusbar a:hover {
+  text-decoration: underline;
+}
+
+.status-links {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .status-links {
+    margin-left: 0;
+    width: 100%;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+  }
+}
+
+.nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+
+.nav a {
+  padding: 8px 16px;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.92rem;
+  transition: all 0.15s ease;
+}
+
+.nav a:hover {
+  background: var(--panel2);
+  color: var(--text);
+  border-color: var(--border-light);
+}
+
+.nav a.active {
+  background: var(--accent-glow);
+  color: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 20px 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 16px 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 0.9rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+th, td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  background: var(--panel2);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-family: var(--font-display);
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tbody tr {
+  transition: background 0.15s ease;
+}
+
+tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+td:nth-child(2), td:nth-child(4), td:nth-child(5), td:nth-child(6) {
+  font-family: var(--font-mono);
+}
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.section-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 16px 0 8px;
+  color: #fff;
+  font-family: var(--font-display);
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  padding: 16px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-light);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+}
+
+.card .fam {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #fff;
+  letter-spacing: 0.5px;
+  display: inline-block;
+  margin-bottom: 6px;
+  border-bottom: 1px dotted var(--muted);
+  cursor: help;
+}
+
+.card .pill {
+  float: right;
+  margin-top: -2px;
+}
+
+.card-rationale {
+  font-size: 0.82rem;
+  margin-top: 10px;
+  display: block;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.card-legs {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--text);
+  margin: 10px 0 6px;
+  line-height: 1.7;
+}
+
+.card-meta {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  margin: 3px 0;
+}
+
+.card-actions {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.card-actions button {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.ok {
+  color: var(--ok) !important;
+}
+
+.err {
+  color: var(--crit) !important;
+}
+
+.warn {
+  color: var(--warn) !important;
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: var(--font-mono);
+}
+
+.badge.INFO {
+  background: rgba(58, 134, 255, 0.12);
+  color: var(--accent);
+}
+
+.badge.WARN {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.badge.CRITICAL {
+  background: var(--crit-bg);
+  color: var(--crit);
+}
+
+.pill {
+  display: inline-block;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 10px;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.pill.ok {
+  background: var(--ok-bg);
+  border-color: rgba(0, 230, 118, 0.3);
+}
+
+.pill.warn {
+  background: var(--warn-bg);
+  border-color: rgba(255, 179, 0, 0.3);
+}
+
+.pill.err {
+  background: var(--crit-bg);
+  border-color: rgba(255, 61, 0, 0.3);
+}
+
+button, .btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-weight: 600;
+  font-size: 0.86rem;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: all 0.15s ease;
+  box-shadow: 0 4px 10px var(--accent-glow);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+button:hover, .btn:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 6px 14px rgba(58, 134, 255, 0.25);
+  transform: translateY(-1px);
+}
+
+button:active, .btn:active {
+  transform: translateY(0);
+}
+
+input {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-size: 0.95rem;
+  font-family: var(--font-mono);
+  transition: border-color 0.15s ease;
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+code {
+  background: var(--panel2);
+  color: var(--accent-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.88em;
+  font-family: var(--font-mono);
+}
+
+th[title], span[title] {
+  border-bottom: 1px dotted var(--muted);
+  cursor: help;
+}
+
+ul {
+  margin: 12px 0;
+  padding-left: 20px;
+}
+
+li {
+  margin: 6px 0;
+}
+
+form {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  padding: 24px;
+  border-radius: 8px;
+  max-width: 600px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+form p {
+  margin-bottom: 20px;
+}
+
+form label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 6px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+form input {
+  width: 100%;
+}
 """
 
 
@@ -99,27 +524,87 @@ def _status_bar() -> str:
     other = "live" if mode == "mock" else "mock"
     host, port = ksettings.get_tws_host(), ksettings.get_tws_port()
     key = "set" if ksettings.finnhub_key_present() else "not set"
+    
+    mode_class = "ok" if mode == "live" else "warn"
+    key_class = "ok" if key == "set" else "err"
+    
     return (
         "<div class='statusbar'>"
-        f"<span>mode <b>{_t(mode)}</b> (<a href='/mode?set={other}'>switch to {other}</a>)</span>"
+        f"<span>mode <b class='pill {mode_class}'>{_t(mode)}</b> (<a href='/mode?set={other}'>switch to {other}</a>)</span>"
         f"<span>TWS <b>{_t(host)}:{_t(port)}</b></span>"
-        f"<span>account <b>{_t(account)}</b></span>"
-        f"<span>Finnhub key <b>{_t(key)}</b></span>"
-        "<span><a href='/connect'>Connect</a> · <a href='/settings'>Settings</a> · "
+        f"<span>account <b class='pill'>{_t(account)}</b></span>"
+        f"<span>Finnhub key <b class='pill {key_class}'>{_t(key)}</b></span>"
+        "<span class='status-links'><a href='/connect'>Connect</a> · <a href='/settings'>Settings</a> · "
         "<a href='/guide'>Guide</a></span>"
         "</div>"
     )
 
 
 def _page(title: str, body: str) -> str:
-    nav = "".join(f"<a href='{r}'>{_t(t)}</a>" for r, _s, t in _PANELS)
+    try:
+        current_path = request.path
+    except RuntimeError:
+        current_path = "/"
+    nav = "".join(f"<a href='{r}' class='{'active' if current_path == r else ''}'>{_t(t)}</a>" for r, _s, t in _PANELS)
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         f"<title>Keystone — {_t(title)}</title><style>{_CSS}</style></head><body>"
-        f"<div class='container'><h1>Keystone</h1>{_status_bar()}"
+        f"<div class='container'><h1>KEY<span style='color:var(--accent);'>STONE</span></h1>{_status_bar()}"
         f"<div class='nav'>{nav}</div><hr><h2>{_t(title)}</h2>{body}</div>"
         "</body></html>"
+    )
+
+
+def _card_html(s: Any) -> str:
+    """Rich candidate card: legs, net credit/debit, max P/L, greeks, OptionStrat,
+    and a Stage-to-TWS button (whatIf, transmit=False)."""
+
+    mgmt = s.management or {}
+    greeks = s.entry_greeks or {}
+    tip = kguide.strategy_tip(s.family.value)
+
+    legs = "<br>".join(
+        f"{leg.action.value} {leg.quantity} {leg.contract.strike:g}"
+        f"{leg.contract.right.value if leg.contract.right else ''} {leg.contract.expiry}"
+        for leg in s.legs
+    ) or "<span class='muted'>—</span>"
+
+    if mgmt.get("credit") is not None:
+        credit = float(mgmt["credit"])
+        net = f"<span class='ok'>credit ${credit * 100:.0f}</span> <span class='muted'>({credit:.2f})</span>"
+        max_profit = mgmt.get("max_profit", credit * 100)
+        pl = f"max profit ${max_profit:.0f} · max loss ${(s.max_loss or 0):.0f}"
+    else:
+        net = f"<span class='warn'>debit ${(s.max_loss or 0):.0f}</span>"
+        pl = "max profit: <span class='muted'>open (no PT on long leg)</span> · " \
+             f"max loss ${(s.max_loss or 0):.0f}"
+
+    greek_str = ", ".join(f"{k} {float(v):+.2f}" for k, v in greeks.items()) or "—"
+    try:
+        url = optionstrat_url(s)
+    except Exception:  # noqa: BLE001
+        url = ""
+    os_link = f"<a href='{escape(url)}' target='_blank'>OptionStrat ↗</a>" if url else ""
+
+    stage = (
+        "<form method='post' action='/stage' style='display:inline'>"
+        f"<input type='hidden' name='account' value='{_t(s.account_id)}'>"
+        f"<input type='hidden' name='sig' value='{_t(s.signature())}'>"
+        "<button type='submit'>Stage to TWS</button></form>"
+    )
+
+    return (
+        "<div class='card'>"
+        f"<span class='fam' title=\"{_t(tip)}\">{_t(s.family.value)}</span>"
+        f"<span class='pill' title=\"{_t(kguide.tip('score'))}\">score {_t(s.score)}</span>"
+        f"<div class='card-legs'>{legs}</div>"
+        f"<div class='card-meta'>{net} · DTE {_t(s.dte)}</div>"
+        f"<div class='card-meta muted'>{pl}</div>"
+        f"<div class='card-meta muted'>greeks: {_t(greek_str)}</div>"
+        f"<span class='card-rationale'>{_t(s.rationale)}</span>"
+        f"<div class='card-actions'>{os_link} {stage}</div>"
+        "</div>"
     )
 
 
@@ -128,6 +613,17 @@ def _page(title: str, body: str) -> str:
 # --------------------------------------------------------------------------- #
 def render_dashboard(state: AppState) -> str:
     out = []
+    if _mode() == "live":
+        try:
+            errs = current_app.config.get("KEYSTONE_SCAN_ERRORS") or []
+        except RuntimeError:
+            errs = []
+        out.append(
+            "<p><a class='btn' href='/scan'>↻ Run weekly checkpoint</a> "
+            "<span class='muted'>live scan via yfinance chains — takes ~20-40s</span></p>"
+        )
+        if errs:
+            out.append(f"<p class='muted'>scan notes: {_t('; '.join(errs[:8]))}</p>")
     if state.market_regime is not None:
         m = state.market_regime
         cls = "err" if m.is_hard_skip else ("warn" if m.is_defensive else "ok")
@@ -160,18 +656,14 @@ def render_dashboard(state: AppState) -> str:
     if state.cards:
         for account_id, cards in state.cards.items():
             label = state.account_labels.get(account_id, account_id)
-            out.append(f"<p class='muted'>{_t(label)} ({_t(account_id)})</p>")
+            out.append(f"<p class='section-label'>{_t(label)} <span class='muted'>({_t(account_id)})</span></p>")
             if not cards:
                 out.append("<p class='muted'>no cards</p>")
                 continue
+            out.append("<div class='cards-grid'>")
             for c in cards:
-                tip = kguide.strategy_tip(c.family.value)
-                out.append(
-                    "<div class='card'>"
-                    f"<span class='fam' title=\"{_t(tip)}\">{_t(c.family.value)}</span> "
-                    f"<span class='pill' title=\"{_t(kguide.tip('score'))}\">score {_t(c.score)}</span><br>"
-                    f"<span class='muted'>{_t(c.rationale)}</span></div>"
-                )
+                out.append(_card_html(c))
+            out.append("</div>")
     else:
         out.append("<p class='muted'>no candidates</p>")
     return _page("Weekly Checkpoint", "".join(out))
@@ -283,7 +775,16 @@ def _effective_state(app: Flask) -> AppState:
             cached = build_mock_state()
             app.config["KEYSTONE_MOCK_STATE"] = cached
         return cached
-    return app.config.get("KEYSTONE_STATE") or AppState()
+    # live: the last weekly-checkpoint scan, else empty until /scan runs.
+    return app.config.get("KEYSTONE_LIVE_STATE") or app.config.get("KEYSTONE_STATE") or AppState()
+
+
+def _find_suggestion(app: Flask, account_id: str, signature: str):
+    state = _effective_state(app)
+    for sugg in state.cards.get(account_id, []):
+        if sugg.signature() == signature:
+            return sugg
+    return None
 
 
 def create_app(
@@ -402,6 +903,95 @@ def create_app(
                 except ValueError:
                     pass
         return redirect("/")
+
+    # --- live weekly-checkpoint scan -------------------------------------- #
+    @app.get("/scan")
+    def scan_view():
+        if app.config.get("KEYSTONE_MODE") != "live":
+            return redirect("/")  # mock is already populated
+        from config.loader import load_config
+        from core.market_data import build_market_data
+        from core.yf_chain import fetch_chain_yf
+        from events.earnings import get_next_earnings
+        from portfolio.account_profiles import from_config
+        from selection.live_scan import build_scan_targets, run_checkpoint
+
+        cfg_all = load_config()
+        profiles = from_config(cfg_all.accounts)
+        smsf_watch = [h.ticker for h in cfg_all.investing.target_holdings]
+        acquire = {h.ticker: h.acquire_below_price for h in cfg_all.investing.target_holdings
+                   if h.acquire_below_price}
+        targets = build_scan_targets(profiles, smsf_watchlist=smsf_watch)
+        md = build_market_data(mode="live")
+
+        nlv_over = {}
+        acct, nlv = app.config.get("KEYSTONE_ACCOUNT"), app.config.get("KEYSTONE_ACCOUNT_NLV")
+        if acct and nlv:
+            nlv_over[acct] = nlv
+        try:
+            result = run_checkpoint(
+                profiles, targets, market_data=md, chain_provider=fetch_chain_yf,
+                get_earnings=get_next_earnings, acquire_below=acquire, nlv_overrides=nlv_over, top_n=5,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _page("Weekly Checkpoint",
+                         f"<p class='err'>Scan failed: {_t(exc)}</p><p><a href='/'>back</a></p>")
+        app.config["KEYSTONE_LIVE_STATE"] = AppState(
+            market_regime=result.market_regime, screened=result.screened,
+            cards=result.cards, account_labels=result.account_labels,
+        )
+        app.config["KEYSTONE_SCAN_ERRORS"] = result.errors
+        return redirect("/")
+
+    # --- stage a candidate to TWS (whatIf, transmit=False) ---------------- #
+    @app.post("/stage")
+    def stage_view():
+        account = request.form.get("account", "")
+        sig = request.form.get("sig", "")
+        suggestion = _find_suggestion(app, account, sig)
+        if suggestion is None:
+            return _page("Stage to TWS",
+                         "<p class='err'>Candidate not found — re-run the scan.</p><p><a href='/'>back</a></p>")
+
+        mode = app.config.get("KEYSTONE_MODE")
+        try:
+            if mode == "live":
+                from core.ib_client import with_ib
+                from execution.stage_live import stage_suggestion_live
+
+                d = with_ib(lambda ib: stage_suggestion_live(ib, suggestion))
+                accepted, init_m, maint_m = d["accepted"], d["init_margin"], d["maint_margin"]
+                action, limit, transmit = d["action"], d["limit"], d["transmit"]
+            else:
+                from core.ib_client import IBClient, MockIB
+                from execution.stage import stage_to_tws
+
+                res = stage_to_tws(IBClient(ib=MockIB()), suggestion)
+                wi, so = res.whatif, res.staged_order
+                accepted, init_m, maint_m = wi.accepted, wi.init_margin, wi.maint_margin
+                action, limit, transmit = so.action, so.limit_price, so.transmit
+        except Exception as exc:  # noqa: BLE001
+            return _page("Stage to TWS",
+                         f"<p class='err'>Staging failed: {_t(exc)}</p><p><a href='/'>back</a></p>")
+
+        try:
+            url = optionstrat_url(suggestion)
+        except Exception:  # noqa: BLE001
+            url = ""
+        os_link = f"<a href='{escape(url)}' target='_blank'>OptionStrat ↗</a> · " if url else ""
+        body = (
+            f"<p class='ok'>Staged <b>{_t(suggestion.family.value)}</b> on "
+            f"<b>{_t(suggestion.symbol)}</b> — <b>transmit=False</b> "
+            f"({'placed untransmitted in TWS — review & send there' if mode == 'live' else 'mock'}).</p>"
+            "<table><tr><th>field</th><th>value</th></tr>"
+            f"<tr><td>whatIf accepted</td><td>{_t(accepted)}</td></tr>"
+            f"<tr><td>init margin</td><td>{_t(round(init_m, 2))}</td></tr>"
+            f"<tr><td>maint margin</td><td>{_t(round(maint_m, 2))}</td></tr>"
+            f"<tr><td>order</td><td>{_t(action)} @ {_t(limit)} (transmit={_t(transmit)})</td></tr>"
+            "</table>"
+            f"<p>{os_link}<a href='/'>back to candidates</a></p>"
+        )
+        return _page("Stage to TWS", body)
 
     return app
 

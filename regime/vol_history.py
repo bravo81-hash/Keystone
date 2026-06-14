@@ -87,6 +87,33 @@ def vrp(iv30: float, rv20: float) -> float:
     return iv30 - rv20
 
 
+def realized_vol_series(closes: list[float], window: int = RV_WINDOW) -> list[float]:
+    """Rolling annualized realized vol across the close series."""
+
+    out: list[float] = []
+    for i in range(window, len(closes)):
+        rv = realized_vol(closes[i - window : i + 1], window)
+        if rv is not None:
+            out.append(rv)
+    return out
+
+
+def realized_vol_rank(closes: list[float], window: int = RV_WINDOW) -> Optional[float]:
+    """0-100 rank of the latest realized vol within its own history.
+
+    A free-data proxy for IVR when 1yr OPTION_IMPLIED_VOLATILITY history isn't
+    available (yfinance mode). High = realized vol is elevated vs its own year.
+    """
+
+    series = realized_vol_series(closes, window)
+    if len(series) < 2:
+        return None
+    cur, lo, hi = series[-1], min(series), max(series)
+    if hi <= lo:
+        return 50.0
+    return 100.0 * (cur - lo) / (hi - lo)
+
+
 # --------------------------------------------------------------------------- #
 # Cached fetchers (one request/ticker/week)
 # --------------------------------------------------------------------------- #

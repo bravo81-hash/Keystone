@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.models import Right, Suggestion
+from execution.n_leg_combo import keystone_order_ref
 
 MULTIPLIER = 100
 
@@ -49,7 +50,7 @@ def stage_suggestion_live(ib: Any, suggestion: Suggestion, *, transmit: bool = F
         action, limit = "BUY", round(float(suggestion.max_loss or 0) / MULTIPLIER, 2)
 
     order = Order(action=action, orderType="LMT", totalQuantity=1, lmtPrice=limit,
-                  tif="DAY", transmit=transmit)
+                  tif="DAY", transmit=transmit, orderRef=keystone_order_ref(suggestion))
 
     state = ib.whatIfOrder(bag, order)
 
@@ -68,5 +69,6 @@ def stage_suggestion_live(ib: Any, suggestion: Suggestion, *, transmit: bool = F
         "action": action,
         "limit": limit,
         "transmit": transmit,
+        "order_ref": keystone_order_ref(suggestion),
         "order_id": getattr(getattr(trade, "order", None), "orderId", None),
     }

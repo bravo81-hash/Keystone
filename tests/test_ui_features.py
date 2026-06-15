@@ -80,6 +80,26 @@ def test_cards_are_enriched(fresh_settings):
     assert "greeks:" in html  # net delta etc.
     assert "max loss" in html  # defined risk
     assert ("credit $" in html or "debit $" in html)  # net
+    assert "class='ticker'" in html  # the symbol is shown on every card
+
+
+def test_card_handles_missing_quote(fresh_settings):
+    # TWS down / pre-market -> NaN price must never render as "$nan".
+    from datetime import date
+
+    from core.models import Action, Contract, Family, InstrumentClass, Leg, Right, Suggestion
+    from ui.app import _card_html
+
+    sugg = Suggestion(
+        symbol="SOFI", account_id="SMSF", family=Family.WHEEL_CSP,
+        legs=[Leg(contract=Contract.option("SOFI", date(2026, 7, 24), 11, Right.PUT), action=Action.SELL)],
+        instrument_class=InstrumentClass.US_EQUITY_OPT,
+        max_loss=float("nan"), management={"credit": float("nan")},
+    )
+    html = _card_html(sugg)
+    assert "nan" not in html.lower()
+    assert "SOFI" in html  # ticker still shown
+    assert "no live quote" in html
 
 
 def test_stage_button_works_in_mock(fresh_settings):

@@ -85,6 +85,22 @@ def test_transmit_false_on_every_path():
         assert order.order_stub()["transmit"] is False
 
 
+def test_order_ref_identifies_keystone_lots():
+    # Every staged order carries KS:<account>:<family>:<sig> so its fills are
+    # identifiable in TWS and reconcilable back to a Keystone entry.
+    from execution.n_leg_combo import keystone_order_ref
+
+    sugg = _credit_spread()
+    ref = keystone_order_ref(sugg)
+    assert ref.startswith("KS:T1:put_credit_spread:")
+    assert ref.endswith(sugg.signature())
+    assert len(ref) <= 128
+
+    order = build_combo(sugg)
+    assert order.order_ref == ref
+    assert order.order_stub()["orderRef"] == ref
+
+
 # --------------------------------------------------------------------------- #
 # whatIf
 # --------------------------------------------------------------------------- #

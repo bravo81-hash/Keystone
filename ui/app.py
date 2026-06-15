@@ -300,6 +300,16 @@ td:nth-child(2), td:nth-child(4), td:nth-child(5), td:nth-child(6) {
   cursor: help;
 }
 
+.card .ticker {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--accent, #6c8cff);
+  letter-spacing: 0.5px;
+  margin-right: 10px;
+  vertical-align: middle;
+}
+
 .card .pill {
   float: right;
   margin-top: -2px;
@@ -508,6 +518,22 @@ def _t(value: Any) -> str:
     return escape(str(value))
 
 
+def _num(value: Any) -> Optional[float]:
+    """Coerce to float, returning None for None / non-numeric / NaN / inf.
+
+    Guards the cards against ``$nan`` when a quote is missing (TWS down /
+    pre-market) — yfinance returns no usable bid/ask so prices come back NaN.
+    """
+
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")):  # NaN != NaN
+        return None
+    return f
+
+
 def _mode() -> str:
     try:
         return current_app.config.get("KEYSTONE_MODE", "mock")
@@ -565,22 +591,31 @@ def _card_html(s: Any) -> str:
     tip = kguide.strategy_tip(s.family.value)
 
     legs = "<br>".join(
-        f"{leg.action.value} {leg.quantity} {leg.contract.strike:g}"
+        f"{leg.action.value} {leg.quantity} {_t(leg.contract.symbol)} {leg.contract.strike:g}"
         f"{leg.contract.right.value if leg.contract.right else ''} {leg.contract.expiry}"
         for leg in s.legs
     ) or "<span class='muted'>—</span>"
 
-    if mgmt.get("credit") is not None:
-        credit = float(mgmt["credit"])
+    credit = _num(mgmt.get("credit"))
+    if credit is not None:
         net = f"<span class='ok'>credit ${credit * 100:.0f}</span> <span class='muted'>({credit:.2f})</span>"
-        max_profit = mgmt.get("max_profit", credit * 100)
-        pl = f"max profit ${max_profit:.0f} · max loss ${(s.max_loss or 0):.0f}"
+        max_profit = _num(mgmt.get("max_profit"))
+        mp = f"${max_profit:.0f}" if max_profit is not None else f"${credit * 100:.0f}"
+        max_loss = _num(s.max_loss)
+        pl = f"max profit {mp} · max loss {('$%.0f' % max_loss) if max_loss is not None else '—'}"
+    elif mgmt.get("credit") is not None or s.max_loss is None:
+        # A net was expected but the quote was NaN/missing (TWS down / pre-market).
+        net = "<span class='warn'>no live quote</span> <span class='muted'>(TWS down / pre-market)</span>"
+        pl = "<span class='muted'>pricing unavailable — re-run when the market is live</span>"
     else:
-        net = f"<span class='warn'>debit ${(s.max_loss or 0):.0f}</span>"
+        max_loss = _num(s.max_loss)
+        net = f"<span class='warn'>debit {('$%.0f' % max_loss) if max_loss is not None else '—'}</span>"
         pl = "max profit: <span class='muted'>open (no PT on long leg)</span> · " \
-             f"max loss ${(s.max_loss or 0):.0f}"
+             f"max loss {('$%.0f' % max_loss) if max_loss is not None else '—'}"
 
-    greek_str = ", ".join(f"{k} {float(v):+.2f}" for k, v in greeks.items()) or "—"
+    greek_str = ", ".join(
+        f"{k} {gv:+.2f}" for k, v in greeks.items() if (gv := _num(v)) is not None
+    ) or "—"
     try:
         url = optionstrat_url(s)
     except Exception:  # noqa: BLE001
@@ -596,6 +631,7 @@ def _card_html(s: Any) -> str:
 
     return (
         "<div class='card'>"
+        f"<span class='ticker'>{_t(s.symbol)}</span>"
         f"<span class='fam' title=\"{_t(tip)}\">{_t(s.family.value)}</span>"
         f"<span class='pill' title=\"{_t(kguide.tip('score'))}\">score {_t(s.score)}</span>"
         f"<div class='card-legs'>{legs}</div>"

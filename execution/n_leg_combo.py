@@ -16,6 +16,27 @@ from core.models import Action, Contract, Right, SecType, Suggestion
 
 MULTIPLIER = 100
 
+#: Prefix stamped on every Keystone-staged order's ``orderRef`` so its fills are
+#: identifiable in TWS and reconcilable back to a Keystone entry. NOTE: IBKR nets
+#: positions by (account, contract) — orderRef rides the order/fills, not the
+#: netted position — so this tags *what Keystone staged*, which is then matched
+#: against the ``entries`` store (the monitor watches Keystone's own book, never a
+#: blind ib.positions() sweep). See the alert engine for that contract.
+ORDER_REF_PREFIX = "KS"
+
+
+def keystone_order_ref(suggestion: Suggestion) -> str:
+    """Stable, human-readable orderRef: ``KS:<account>:<family>:<sig>``.
+
+    Bounded to IBKR's practical orderRef length; the signature is the unique key
+    used to reconcile a fill back to the staged entry.
+    """
+
+    account = (getattr(suggestion, "account_id", None) or "?")
+    family = getattr(suggestion.family, "value", str(suggestion.family))
+    sig = suggestion.signature()
+    return f"{ORDER_REF_PREFIX}:{account}:{family}:{sig}"[:128]
+
 
 @dataclass
 class ComboLeg:
@@ -37,6 +58,7 @@ class StagedOrder:
     limit_price: Optional[float] = None
     tif: str = "DAY"  # never MOC
     transmit: bool = False  # ALWAYS — staged only
+    order_ref: Optional[str] = None  # KS:<account>:<family>:<sig> — identifies Keystone's lots
     meta: dict = field(default_factory=dict)
 
     @property
@@ -53,6 +75,7 @@ class StagedOrder:
             "lmtPrice": self.limit_price,
             "tif": self.tif,
             "transmit": False,
+            "orderRef": self.order_ref,
         }
 
     def to_ib_order(self):  # pragma: no cover - live seam
@@ -67,6 +90,7 @@ class StagedOrder:
             lmtPrice=self.limit_price,
             tif=self.tif,
             transmit=False,
+            orderRef=self.order_ref or "",
         )
 
 
@@ -108,5 +132,6 @@ def build_combo(
         quantity=quantity,
         limit_price=limit_price,
         transmit=False,
+        order_ref=keystone_order_ref(suggestion),
         meta={"family": suggestion.family.value, "multi_expiry": suggestion.multi_expiry},
     )

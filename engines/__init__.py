@@ -16,5 +16,6 @@ from __future__ import annotations
 from engines.base import Engine, tag_engine
 from engines.engine1_income import IncomeEngine
 from engines.engine2_core import Engine2Core
+from engines.engine3_overlay import Engine3Overlay
 
-__all__ = ["Engine", "tag_engine", "IncomeEngine", "Engine2Core"]
+__all__ = ["Engine", "tag_engine", "IncomeEngine", "Engine2Core", "Engine3Overlay"]

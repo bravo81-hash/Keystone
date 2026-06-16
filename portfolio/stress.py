@@ -20,11 +20,19 @@ MARKET_SPOT_SHOCK = -0.05
 MARKET_IV_SHOCK = 10.0  # vol points
 WORST_NAME_GAP = -0.15
 WORST_NAME_IV_SHOCK = 15.0  # vol points
+SEVERE_SPOT_SHOCK = -0.20  # v2 severe tail: -20% overnight gap
+SEVERE_IV_SHOCK = 30.0  # IV +30 (vol points)
 
 
 @dataclass
 class StressPosition:
-    """A position expressed for stress: dollar greeks + defined max-loss floor."""
+    """A position expressed for stress: dollar greeks + defined max-loss floor.
+
+    v2: ``severe_payoff`` lets an option structure (Engine 2 hedge, Engine 3
+    overlay) supply its MODELED severe-tail P&L directly — the greek
+    linearization is poor for deep-OTM convexity over a -20% gap, so the engines'
+    intrinsic-based payoff is used for the severe row when provided.
+    """
 
     symbol: str
     spot: float
@@ -35,6 +43,8 @@ class StressPosition:
     max_loss: Optional[float] = None  # defined-risk floor (positive number)
     earnings_window: bool = False
     implied_move: float = 0.0  # fractional 1-sigma implied move (earnings)
+    severe_payoff: Optional[float] = None  # modeled severe-tail P&L override ($, signed)
+    engine: Optional[str] = None  # "income" | "core" | "overlay" (for attribution)
 
     def pnl(self, spot_move_frac: float, iv_shock_volpts: float) -> float:
         price_change = self.spot * spot_move_frac
@@ -43,6 +53,26 @@ class StressPosition:
         if self.max_loss is not None:
             pnl = max(pnl, -abs(self.max_loss))  # cannot lose more than defined risk
         return pnl
+
+    def pnl_severe(self, spot_move_frac: float, iv_shock_volpts: float) -> float:
+        """Severe-tail P&L: the modeled override when set, else the greek pnl."""
+
+        if self.severe_payoff is not None:
+            return self.severe_payoff
+        return self.pnl(spot_move_frac, iv_shock_volpts)
+
+    def scaled(self, factor: float) -> "StressPosition":
+        """A copy with all dollar quantities scaled (used to size leverage down)."""
+
+        return StressPosition(
+            symbol=self.symbol, spot=self.spot, beta=self.beta,
+            delta_shares=self.delta_shares * factor, gamma_shares=self.gamma_shares * factor,
+            vega_dollars_per_volpt=self.vega_dollars_per_volpt * factor,
+            max_loss=None if self.max_loss is None else self.max_loss * factor,
+            earnings_window=self.earnings_window, implied_move=self.implied_move,
+            severe_payoff=None if self.severe_payoff is None else self.severe_payoff * factor,
+            engine=self.engine,
+        )
 
 
 @dataclass
@@ -53,6 +83,23 @@ class StressResult:
     ceiling: Optional[float]
     market_within_ceiling: bool
     worst_within_ceiling: bool
+
+
+@dataclass
+class SevereTailResult:
+    """The -20% / IV+30 overnight-gap scenario over the FULL leveraged book.
+
+    The DD-hard gate: ``aggregate_loss`` must be <= the DD budget, else the
+    leverage allocator must cut size. ``implied_max_leverage`` is the multiple of
+    the current book that would bring the loss exactly to the budget (>= 1 means
+    in-budget at current size; < 1 means cut to that fraction)."""
+
+    aggregate_pnl: float  # signed (negative = loss)
+    aggregate_loss: float  # positive loss magnitude (0 when the book gains)
+    dd_budget: float
+    within_budget: bool
+    implied_max_leverage: float
+    hedge_offset: float  # summed positive severe payoff from hedge/overlay legs
 
 
 def beta_60d(name_closes: list[float], spy_closes: list[float], window: int = 60) -> float:
@@ -112,6 +159,43 @@ def worst_single_name(
         if worst_sym is None or pnl < worst_pnl:
             worst_sym, worst_pnl = pos.symbol, pnl
     return worst_sym, worst_pnl
+
+
+def severe_tail_row(
+    book: list[StressPosition],
+    *,
+    spot_shock: float = SEVERE_SPOT_SHOCK,
+    iv_shock: float = SEVERE_IV_SHOCK,
+) -> float:
+    """Full-book P&L in the severe-tail gap (beta-mapped), using modeled severe
+    payoffs for the hedge/overlay legs that supply them."""
+
+    total = 0.0
+    for pos in book:
+        total += pos.pnl_severe(pos.beta * spot_shock, iv_shock)
+    return total
+
+
+def severe_tail_stress(
+    book: list[StressPosition],
+    dd_budget: float,
+    *,
+    cfg: Optional[StressCfg] = None,
+) -> SevereTailResult:
+    """Run the severe-tail scenario over the full leveraged book and gate it
+    against the DD budget. Feeds the governor + the leverage allocator."""
+
+    cfg = cfg or StressCfg()
+    pnl = severe_tail_row(book, spot_shock=cfg.severe_spot_shock, iv_shock=cfg.severe_iv_shock)
+    loss = max(0.0, -pnl)
+    budget = abs(dd_budget)
+    within = loss <= budget + 1e-6
+    implied = float("inf") if loss <= 0 else budget / loss
+    hedge_offset = sum(
+        p.severe_payoff for p in book
+        if p.severe_payoff is not None and p.severe_payoff > 0
+    )
+    return SevereTailResult(pnl, loss, budget, within, implied, hedge_offset)
 
 
 def stress_book(book: list[StressPosition], cfg: Optional[StressCfg] = None) -> StressResult:

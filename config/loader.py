@@ -15,6 +15,7 @@ import yaml
 
 from .schema import (
     AccountsConfig,
+    EnginesConfig,
     InvestingConfig,
     KeystoneConfig,
     RiskConfig,
@@ -48,8 +49,12 @@ def load_risk(config_dir: Path = CONFIG_DIR) -> RiskConfig:
     return RiskConfig(**_read_yaml(Path(config_dir) / "risk.yaml"))
 
 
+def load_engines(config_dir: Path = CONFIG_DIR) -> EnginesConfig:
+    return EnginesConfig(**_read_yaml(Path(config_dir) / "engines.yaml"))
+
+
 def load_config(config_dir: Optional[Path] = None) -> KeystoneConfig:
-    """Load + validate all four config files into one ``KeystoneConfig``."""
+    """Load + validate all config files into one ``KeystoneConfig``."""
 
     cdir = Path(config_dir) if config_dir is not None else CONFIG_DIR
     return KeystoneConfig(
@@ -57,4 +62,5 @@ def load_config(config_dir: Optional[Path] = None) -> KeystoneConfig:
         universe=load_universe(cdir),
         investing=load_investing(cdir),
         risk=load_risk(cdir),
+        engines=load_engines(cdir),
     )

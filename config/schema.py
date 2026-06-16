@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # --------------------------------------------------------------------------- #
@@ -108,6 +108,10 @@ class StressCfg(BaseModel):
     worst_name_iv_shock: float = 15.0  # IV +15
     earnings_implied_move_mult: float = 1.5  # +/-1.5x implied move in earnings window
     weekly_pnl_ceiling: Optional[float] = None  # calibrate to THIS book; set by user
+    # v2 severe tail (Stage 17): the gap scenario that enforces the DD-hard budget.
+    severe_spot_shock: float = -0.20  # -20% overnight gap
+    severe_iv_shock: float = 30.0  # IV +30 (vol points)
+    severe_horizon_days: int = 1  # overnight
 
 
 class IndexBookIngestCfg(BaseModel):
@@ -115,11 +119,151 @@ class IndexBookIngestCfg(BaseModel):
     source: Optional[str] = None
 
 
+# --------------------------------------------------------------------------- #
+# risk.yaml — v2 governor / leverage section
+# --------------------------------------------------------------------------- #
+class GovernorThresholdsCfg(BaseModel):
+    """Tiered drawdown-from-high-water-mark thresholds (fractions of HWM NLV).
+
+    ``dd_warn`` begins linear de-levering; ``dd_delever`` goes hedge-heavy and
+    cuts Engines 1-2; ``dd_defensive`` closes/hedges and blocks risk-on until
+    NLV recovers ``reentry_recovery_margin`` back above the defensive line
+    (anti-whipsaw). Must satisfy 0 < warn < delever < defensive < 1.
+    """
+
+    dd_warn: float = 0.10
+    dd_delever: float = 0.15
+    dd_defensive: float = 0.20
+    reentry_recovery_margin: float = 0.03  # NLV must recover this far above the line
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "GovernorThresholdsCfg":
+        if not (0.0 < self.dd_warn < self.dd_delever < self.dd_defensive < 1.0):
+            raise ValueError(
+                "governor thresholds must satisfy 0 < dd_warn < dd_delever < dd_defensive < 1"
+            )
+        if self.reentry_recovery_margin < 0.0:
+            raise ValueError("reentry_recovery_margin must be >= 0")
+        return self
+
+
+class LeverageCapCfg(BaseModel):
+    """Leverage backstops. The risk-based cap (stress-loss / vol budget) is the
+    PRIMARY governor; ``gross_notional_ceiling`` is a hard secondary backstop."""
+
+    gross_notional_ceiling: float = 2.25  # gross notional / NLV hard cap
+    min_exposure_scalar: float = 0.0  # vol-target floor (0 = can fully de-risk)
+    max_exposure_scalar: float = 2.25  # vol-target cap (aligns with gross ceiling)
+
+    @model_validator(mode="after")
+    def _bounds(self) -> "LeverageCapCfg":
+        if self.gross_notional_ceiling <= 0:
+            raise ValueError("gross_notional_ceiling must be > 0")
+        if not (0.0 <= self.min_exposure_scalar <= self.max_exposure_scalar):
+            raise ValueError("require 0 <= min_exposure_scalar <= max_exposure_scalar")
+        return self
+
+
+class GovernorCfg(BaseModel):
+    portfolio_vol_target_annual: float = 0.13  # 13% annualized whole-book vol target
+    thresholds: GovernorThresholdsCfg = Field(default_factory=GovernorThresholdsCfg)
+    leverage: LeverageCapCfg = Field(default_factory=LeverageCapCfg)
+
+    @model_validator(mode="after")
+    def _vol_target_positive(self) -> "GovernorCfg":
+        if self.portfolio_vol_target_annual <= 0:
+            raise ValueError("portfolio_vol_target_annual must be > 0")
+        return self
+
+
 class RiskConfig(BaseModel):
     trading: TradingBudgetCfg = Field(default_factory=TradingBudgetCfg)
     smsf: SMSFBudgetCfg = Field(default_factory=SMSFBudgetCfg)
     stress: StressCfg = Field(default_factory=StressCfg)
     index_book_ingest: IndexBookIngestCfg = Field(default_factory=IndexBookIngestCfg)
+    governor: GovernorCfg = Field(default_factory=GovernorCfg)
+
+
+# --------------------------------------------------------------------------- #
+# engines.yaml  (v2 — three-engine allocations + per-engine risk budget)
+# --------------------------------------------------------------------------- #
+class IncomeEngineCfg(BaseModel):
+    """Engine 1 (income) — existing v1 strategies, heat raised under governor
+    control. The heat is a BAND: the governor sizes short premium between the v1
+    floor and ``short_premium_max_pct``, targeting ``short_premium_target_pct``.
+    """
+
+    enabled: bool = True
+    capital_allocation: float = 0.40  # fraction of NLV allocated to this engine
+    risk_budget_pct: float = 0.35  # share of the severe-tail DD budget
+    short_premium_target_pct: float = 15.0  # governor target heat (% NLV max-loss)
+    short_premium_max_pct: float = 18.0  # hard ceiling on Engine-1 heat
+
+    @model_validator(mode="after")
+    def _heat_band(self) -> "IncomeEngineCfg":
+        if not (0.0 < self.short_premium_target_pct <= self.short_premium_max_pct):
+            raise ValueError("require 0 < short_premium_target_pct <= short_premium_max_pct")
+        return self
+
+
+class CoreEngineCfg(BaseModel):
+    """Engine 2 (leveraged protected core) — LEAPS/PMCC + standing hedge."""
+
+    enabled: bool = True
+    capital_allocation: float = 0.40
+    risk_budget_pct: float = 0.45
+    core_exposure_mult: float = 1.5  # effective core exposure x allocated capital
+    leaps_delta: float = 0.75  # deep-ITM target delta (70-80)
+    hedge_base_otm_pct: float = 0.05  # base layer: OTM index put-spread distance
+    hedge_base_spread_width_pct: float = 0.05  # width of the base put spread
+    hedge_tail_otm_pct: float = 0.15  # tail layer: deep-OTM long put distance
+    severe_tail_loss_cap_pct: float = 0.20  # cap core severe-tail loss near DD budget
+
+    @model_validator(mode="after")
+    def _bounds(self) -> "CoreEngineCfg":
+        if not (1.3 <= self.core_exposure_mult <= 1.7):
+            raise ValueError("core_exposure_mult must be in [1.3, 1.7]")
+        if not (0.5 <= self.leaps_delta < 1.0):
+            raise ValueError("leaps_delta must be in [0.5, 1.0)")
+        return self
+
+
+class OverlayEngineCfg(BaseModel):
+    """Engine 3 (trend/managed-futures + convexity) — load-bearing, defined-risk."""
+
+    enabled: bool = True
+    capital_allocation: float = 0.20
+    risk_budget_pct: float = 0.20
+    trend_overlay_risk_pct: float = 8.0  # load-bearing (> a pure return-maximizer)
+    signal: Literal["ts_momentum", "ma_state", "both"] = "both"
+    basket: list[str] = Field(
+        default_factory=lambda: ["SPY", "QQQ", "IWM", "TLT", "GLD", "XLE", "DBC", "UUP"]
+    )
+
+    @model_validator(mode="after")
+    def _load_bearing(self) -> "OverlayEngineCfg":
+        if self.trend_overlay_risk_pct <= 0:
+            raise ValueError("trend_overlay_risk_pct must be > 0 (load-bearing)")
+        return self
+
+
+class EnginesConfig(BaseModel):
+    """Three-engine allocation. Capital allocations should sum to ~1.0; risk
+    budgets are shares of the severe-tail DD budget and should also sum to ~1.0."""
+
+    income: IncomeEngineCfg = Field(default_factory=IncomeEngineCfg)
+    core: CoreEngineCfg = Field(default_factory=CoreEngineCfg)
+    overlay: OverlayEngineCfg = Field(default_factory=OverlayEngineCfg)
+
+    @model_validator(mode="after")
+    def _allocations(self) -> "EnginesConfig":
+        cap = self.income.capital_allocation + self.core.capital_allocation + self.overlay.capital_allocation
+        if abs(cap - 1.0) > 0.05:
+            raise ValueError(f"engine capital_allocation must sum to ~1.0 (got {cap:.3f})")
+        risk = self.income.risk_budget_pct + self.core.risk_budget_pct + self.overlay.risk_budget_pct
+        if abs(risk - 1.0) > 0.05:
+            raise ValueError(f"engine risk_budget_pct must sum to ~1.0 (got {risk:.3f})")
+        return self
 
 
 # --------------------------------------------------------------------------- #
@@ -130,3 +274,4 @@ class KeystoneConfig(BaseModel):
     universe: UniverseConfig
     investing: InvestingConfig
     risk: RiskConfig
+    engines: EnginesConfig = Field(default_factory=EnginesConfig)

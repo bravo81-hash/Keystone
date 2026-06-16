@@ -1,0 +1,38 @@
+# Keystone v2 — three-engine allocation + per-engine risk budget.
+#
+# capital_allocation: fraction of NLV steered to each engine (sum ~1.0).
+# risk_budget_pct:    share of the severe-tail (-20%) DD budget (sum ~1.0).
+# The governor (Stage 16) sizes within these bounds; engines.yaml sets the
+# bounds, risk.yaml.governor sets the vol target / drawdown tiers / leverage cap.
+
+# Engine 1 — income (existing v1 strategies). Heat raised under governor
+# control: short premium sized between the v1 floor and short_premium_max_pct,
+# targeting short_premium_target_pct.
+income:
+  enabled: true
+  capital_allocation: 0.40
+  risk_budget_pct: 0.35
+  short_premium_target_pct: 15.0   # governor target heat (% NLV defined max-loss)
+  short_premium_max_pct: 18.0      # hard ceiling
+
+# Engine 2 — leveraged protected core (LEAPS/PMCC + standing layered hedge).
+core:
+  enabled: true
+  capital_allocation: 0.40
+  risk_budget_pct: 0.45
+  core_exposure_mult: 1.5          # effective core exposure x allocated capital (1.3-1.7)
+  leaps_delta: 0.75                # deep-ITM target delta (70-80)
+  hedge_base_otm_pct: 0.05         # base layer OTM index put-spread distance
+  hedge_base_spread_width_pct: 0.05
+  hedge_tail_otm_pct: 0.15         # tail layer deep-OTM long put distance
+  severe_tail_loss_cap_pct: 0.20   # cap core severe-tail loss near the DD budget
+
+# Engine 3 — trend/managed-futures + convexity overlay (load-bearing,
+# defined-risk, option-expressed; no stock shorting).
+overlay:
+  enabled: true
+  capital_allocation: 0.20
+  risk_budget_pct: 0.20
+  trend_overlay_risk_pct: 8.0      # load-bearing (larger than a return-maximizer)
+  signal: both                     # ts_momentum | ma_state | both
+  basket: [SPY, QQQ, IWM, TLT, GLD, XLE, DBC, UUP]

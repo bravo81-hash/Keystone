@@ -27,8 +27,27 @@ stress:
   worst_name_iv_shock: 15.0          # IV +15
   earnings_implied_move_mult: 1.5    # +/-1.5x implied move inside an earnings window
   weekly_pnl_ceiling: null           # USER: calibrate to THIS book's weekly/monthly P&L
+  severe_spot_shock: -0.20           # v2 severe tail: -20% overnight gap
+  severe_iv_shock: 30.0              # IV +30 (vol points)
+  severe_horizon_days: 1             # overnight
 
 # Optional read-only ingest of external index-book positions (off by default).
 index_book_ingest:
   enabled: false
   source: null
+
+# v2 portfolio governor — the spine above portfolio that makes leverage
+# survivable. Vol-targets the whole book and applies a tiered drawdown
+# circuit-breaker; the leverage allocator (Stage 16) sizes engines to the
+# severe-tail DD budget, gated by these.
+governor:
+  portfolio_vol_target_annual: 0.13  # 13% annualized whole-book vol target
+  thresholds:
+    dd_warn: 0.10                    # begin linear de-lever
+    dd_delever: 0.15                 # hedge-heavy + cut Engines 1-2
+    dd_defensive: 0.20               # close/hedge; no risk-on until recovery
+    reentry_recovery_margin: 0.03    # anti-whipsaw: recover this far above the line
+  leverage:
+    gross_notional_ceiling: 2.25     # hard backstop (risk-based cap is primary)
+    min_exposure_scalar: 0.0
+    max_exposure_scalar: 2.25

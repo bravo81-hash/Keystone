@@ -166,6 +166,9 @@ class Suggestion(BaseModel):
     multi_expiry: bool = False
     tier: Optional[str] = None
     score: Optional[float] = None
+    # v2: which engine produced this — "income" (1), "core" (2), "overlay" (3).
+    # None for un-tagged v1 callers; the engine orchestrators stamp it.
+    engine: Optional[str] = None
     # Free-form management metadata (PT/stop/must-touch-by/etc.) set by strategies.
     management: dict = Field(default_factory=dict)
     meta: dict = Field(default_factory=dict)

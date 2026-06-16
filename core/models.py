@@ -70,6 +70,12 @@ class Family(str, Enum):
     WHEEL_CC = "wheel_cc"
     COLLAR = "collar"
     PMCC = "pmcc"
+    # v2 Engine 2 (core) + Engine 3 (overlay) families.
+    CORE_LEAPS = "core_leaps"  # deep-ITM LEAPS core replacement
+    CORE_PMCC = "core_pmcc"  # LEAPS + short-call covered diagonal core
+    CORE_HEDGE = "core_hedge"  # standing tail hedge (put spread / long put)
+    OVERLAY_DEBIT_SPREAD = "overlay_debit_spread"  # trend overlay defined-risk expression
+    OVERLAY_LEAP = "overlay_leap"  # trend overlay long-premium LEAP
 
 
 class EventKind(str, Enum):

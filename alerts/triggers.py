@@ -48,6 +48,12 @@ class TriggerKind(str, Enum):
     PIN_RISK = "pin_risk"
     REGIME_HARD_SKIP = "regime_hard_skip"
     EARNINGS_EXPOSURE = "earnings_exposure"
+    # v2 governor (book-level) triggers
+    DRAWDOWN_TIER = "drawdown_tier"
+    DELEVER_TRIGGERED = "delever_triggered"
+    VOL_TARGET_CUT = "vol_target_cut"
+    HEDGE_COVERAGE_LOW = "hedge_coverage_low"
+    SEVERE_TAIL_BREACH = "severe_tail_breach"
 
 
 @dataclass

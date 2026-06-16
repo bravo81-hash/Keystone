@@ -28,3 +28,7 @@ class AppState:
     collars: list[dict] = field(default_factory=list)
     # Stress panel
     stress: Optional[Any] = None  # portfolio.stress.StressResult
+    # v2 governor panel
+    engine_allocations: dict[str, dict] = field(default_factory=dict)  # engine -> {target, actual}
+    governor: Optional[dict] = None  # {vol_target, sigma_now, exposure_scalar, drawdown,
+    #   tier, leverage_util, hedge_coverage, severe_tail_pass, severe_tail_loss, dd_budget}

@@ -41,7 +41,15 @@ class Engine2Core(Engine):
             leaps_delta=self.cfg.leaps_delta,
             use_pmcc=use_pmcc,
         )
-        return tag_engine([s], self.name)
+        out = tag_engine([s], self.name)
+        # When the orchestrator supplies the severe-loss + DD budget for this
+        # name, also surface its standing hedge (core + hedge as one engine).
+        csl = ctx.extras.get("core_severe_loss")
+        ddb = ctx.extras.get("dd_budget")
+        if csl is not None and ddb is not None:
+            plan = self.propose_hedge(ctx, core_severe_loss=float(csl), dd_budget_dollars=float(ddb))
+            out.extend(plan.suggestions)
+        return out
 
     # --- standing hedge ---------------------------------------------------- #
     def propose_hedge(

@@ -27,6 +27,7 @@ _PANELS = [
     ("/alerts", "alerts", "Alerts Queue"),
     ("/smsf", "smsf", "SMSF View"),
     ("/stress", "stress", "Stress Panel"),
+    ("/governor", "governor", "Governor"),
     ("/guide", "guide", "Guide"),
 ]
 
@@ -783,6 +784,50 @@ def render_stress(state: AppState) -> str:
     return _page("Stress Panel", body)
 
 
+def render_governor(state: AppState) -> str:
+    """v2 governor panel: engine allocations + governor state (vol target,
+    exposure scalar, drawdown tier, leverage utilization, hedge coverage,
+    severe-tail pass/fail)."""
+
+    out: list[str] = []
+    g = state.governor
+    if not g and not state.engine_allocations:
+        return _page("Governor", "<p class='muted'>no governor cycle run "
+                     "(v2 leverage off until validation passes — see Guide)</p>")
+
+    if g:
+        tier = str(g.get("tier", "—"))
+        pass_ = g.get("severe_tail_pass")
+        out.append("<h3>Governor state</h3>")
+        out.append(
+            "<table><tr><th>metric</th><th>value</th></tr>"
+            f"<tr><td>vol target (annual)</td><td>{_t(g.get('vol_target', '—'))}</td></tr>"
+            f"<tr><td>portfolio vol (now)</td><td>{_t(g.get('sigma_now', '—'))}</td></tr>"
+            f"<tr><td>exposure scalar</td><td>{_t(g.get('exposure_scalar', '—'))}</td></tr>"
+            f"<tr><td>drawdown</td><td>{_t(g.get('drawdown', '—'))}</td></tr>"
+            f"<tr><td>drawdown tier</td>"
+            f"<td class='{'err' if tier == 'DEFENSIVE' else ('warn' if tier in ('WARN', 'DELEVER') else 'ok')}'>"
+            f"{_t(tier)}</td></tr>"
+            f"<tr><td>leverage utilization</td><td>{_t(g.get('leverage_util', '—'))}</td></tr>"
+            f"<tr><td>hedge coverage ratio</td><td>{_t(g.get('hedge_coverage', '—'))}</td></tr>"
+            f"<tr><td>severe-tail (−20%) vs DD budget</td>"
+            f"<td class='{'ok' if pass_ else 'err'}'>"
+            f"{'PASS' if pass_ else 'FAIL'}</td></tr>"
+            "</table>"
+        )
+
+    if state.engine_allocations:
+        rows = "".join(
+            f"<tr><td>{_t(name)}</td><td>{_t(a.get('target', '—'))}</td>"
+            f"<td>{_t(a.get('actual', '—'))}</td></tr>"
+            for name, a in state.engine_allocations.items()
+        )
+        out.append("<h3>Engine allocations (target vs actual)</h3>")
+        out.append(f"<table><tr><th>engine</th><th>target</th><th>actual</th></tr>{rows}</table>")
+
+    return _page("Governor", "".join(out))
+
+
 def render_guide(_state: AppState) -> str:
     return _page("Guide — selection criteria", kguide.render_guide())
 
@@ -793,6 +838,7 @@ _RENDERERS = {
     "alerts": render_alerts,
     "smsf": render_smsf,
     "stress": render_stress,
+    "governor": render_governor,
     "guide": render_guide,
 }
 

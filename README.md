@@ -11,7 +11,30 @@ re-implemented here, not imported from any index book.
   the forced weekly cadence.
 
 See [keystone-design.md](keystone-design.md) for the full doctrine. Status:
-all 12 build stages complete; 220 tests passing (MockIB — no live TWS in CI).
+all 12 v1 build stages + v2 (stages 13–19) complete; 328 tests passing (MockIB —
+no live TWS in CI).
+
+## v2 — leverage + governor (DO NOT enable live leverage until validated)
+
+v2 is additive (see [keystone-v2-design.md](keystone-v2-design.md)): three engines
+behind a uniform interface — **Engine 1 income** (the v1 strategies),
+**Engine 2 core** (leveraged LEAPS/PMCC + a standing layered hedge), **Engine 3
+overlay** (trend/managed-futures convexity, defined-risk, option-expressed) — sized
+by a **portfolio governor** (`governor/`): vol-targeting, a tiered drawdown
+circuit-breaker with anti-whipsaw re-entry, and a stress-constrained leverage
+allocator that raises Engine 1/2 leverage only as far as the severe-tail (−20% /
+IV+30) loss — **net of the hedge + overlay crisis alpha** — fits the 20% DD budget.
+
+**The 20% drawdown is the binding constraint; ~mid-to-high-teens CAGR is the honest
+expectation. The governor cannot act inside an overnight gap — a true tail can print
+deeper.** Configure engines/leverage in [config/engines.yaml](config/engines.yaml)
+and `governor:` in [config/risk.yaml](config/risk.yaml).
+
+**Mandatory gate:** the system has no backtester. Run the validation harness
+(`validation/scenario_replay.run_validation`) — historical regime proxies (2008 /
+2018-vol / 2020 / 2022) + a Monte Carlo through the governor + engine P&L proxies —
+and inspect its report. **Live leverage must NOT be enabled until this PASSes at the
+configured leverage cap.** A FAIL prints the leverage reduction required.
 
 ## The two-clock model
 

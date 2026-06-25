@@ -174,6 +174,9 @@ def run_scout(
     )
 
     # ── 5. Strategy cards ────────────────────────────────────────────────── #
+    from strategies.trend_filter import TrendState, trend_state  # noqa: PLC0415
+    trend = trend_state(closes) if len(closes) >= 220 else TrendState.NONE
+
     cards: dict[str, list] = {}
     if chain is not None and chain.quotes:
         ic = classify(Contract.stock(ticker))
@@ -185,7 +188,7 @@ def run_scout(
                 is_etf=is_etf, spot=spot,
                 stock_regime=sr, market_regime=market_regime,
                 per_position_budget=0.01 * nlv, nlv=nlv, asof=asof,
-                extras={"tier": "A"},
+                extras={"tier": "A", "trend": trend},
             )
             for a in accts
         ]

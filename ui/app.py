@@ -984,7 +984,18 @@ def _render_scout_result(result: Any) -> str:
                 parts.append(_scout_card_html(c))
             parts.append("</div>")
     elif result.tech is not None:
-        parts.append("<p class='muted'>No option chain data — cards require a live market session.</p>")
+        if result.stock_regime is not None:
+            ivr_note = f"IVR {result.ivr:.0f}" if result.ivr is not None else "IVR unavailable"
+            parts.append(
+                f"<p class='muted'>No qualifying strategies for <b>{_t(result.ticker)}</b> "
+                f"in current conditions ({_t(result.stock_regime.state.value)}, {_t(ivr_note)}). "
+                "Credit spreads require IVR &ge; 30; trend strategies require a clear UP/DOWN trend.</p>"
+            )
+        else:
+            parts.append(
+                f"<p class='muted'>No option chain data for <b>{_t(result.ticker)}</b> "
+                "— yfinance returned no options. Try during market hours or check the ticker.</p>"
+            )
 
     return "".join(parts)
 

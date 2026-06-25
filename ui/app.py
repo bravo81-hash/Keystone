@@ -28,6 +28,7 @@ _PANELS = [
     ("/smsf", "smsf", "SMSF View"),
     ("/stress", "stress", "Stress Panel"),
     ("/governor", "governor", "Governor"),
+    ("/scout", "scout", "Scout"),
     ("/guide", "guide", "Guide"),
 ]
 
@@ -832,6 +833,206 @@ def render_guide(_state: AppState) -> str:
     return _page("Guide — selection criteria", kguide.render_guide())
 
 
+# --------------------------------------------------------------------------- #
+# Scout panel helpers
+# --------------------------------------------------------------------------- #
+
+def _scout_card_html(s: Any) -> str:
+    """Card variant without Stage button (Scout cards use separate account IDs)."""
+    mgmt = s.management or {}
+    greeks = s.entry_greeks or {}
+    tip = kguide.strategy_tip(s.family.value)
+
+    legs = "<br>".join(
+        f"{leg.action.value} {leg.quantity} {_t(leg.contract.symbol)} {leg.contract.strike:g}"
+        f"{leg.contract.right.value if leg.contract.right else ''} {leg.contract.expiry}"
+        for leg in s.legs
+    ) or "<span class='muted'>—</span>"
+
+    credit = _num(mgmt.get("credit"))
+    if credit is not None:
+        max_profit = _num(mgmt.get("max_profit"))
+        mp = f"${max_profit:.0f}" if max_profit is not None else f"${credit * 100:.0f}"
+        max_loss = _num(s.max_loss)
+        net = f"<span class='ok'>credit ${credit * 100:.0f}</span> <span class='muted'>({credit:.2f})</span>"
+        pl = f"max profit {mp} · max loss {('$%.0f' % max_loss) if max_loss is not None else '—'}"
+    elif mgmt.get("credit") is not None or s.max_loss is None:
+        net = "<span class='warn'>no live quote</span> <span class='muted'>(TWS down / pre-market)</span>"
+        pl = "<span class='muted'>pricing unavailable</span>"
+    else:
+        max_loss = _num(s.max_loss)
+        net = f"<span class='warn'>debit {('$%.0f' % max_loss) if max_loss is not None else '—'}</span>"
+        pl = f"max profit: open · max loss {('$%.0f' % max_loss) if max_loss is not None else '—'}"
+
+    greek_str = ", ".join(
+        f"{k} {gv:+.2f}" for k, v in greeks.items() if (gv := _num(v)) is not None
+    ) or "—"
+    try:
+        url = optionstrat_url(s)
+    except Exception:  # noqa: BLE001
+        url = ""
+    os_link = f"<a href='{escape(url)}' target='_blank'>OptionStrat ↗</a>" if url else ""
+
+    return (
+        "<div class='card'>"
+        f"<span class='ticker'>{_t(s.symbol)}</span>"
+        f"<span class='fam' title=\"{_t(tip)}\">{_t(s.family.value)}</span>"
+        f"<span class='pill' title=\"{_t(kguide.tip('score'))}\">score {_t(s.score)}</span>"
+        f"<div class='card-legs'>{legs}</div>"
+        f"<div class='card-meta'>{net} · DTE {_t(s.dte)}</div>"
+        f"<div class='card-meta muted'>{pl}</div>"
+        f"<div class='card-meta muted'>greeks: {_t(greek_str)}</div>"
+        f"<span class='card-rationale'>{_t(s.rationale)}</span>"
+        f"<div class='card-actions'>{os_link}</div>"
+        "</div>"
+    )
+
+
+def _render_scout_result(result: Any) -> str:
+    """Build the HTML fragment returned by POST /scout/analyse."""
+    from html import escape as _esc
+
+    parts: list[str] = []
+
+    # ── tech score ─────────────────────────────────────────────────
+    tech = result.tech
+    if tech:
+        sig_cls = "ok" if tech.signal.value == "STRONG_BUY" else (
+            "warn" if tech.signal.value == "WATCH" else "err")
+        factor_cells = "".join(
+            f"<td class=\"{'ok' if f else 'err'}\">{'✓' if f else '✗'}</td>"
+            for f in tech.factors
+        )
+        trio_badge = (
+            "<span class='pill ok'>trio ✓</span>" if tech.trio
+            else "<span class='pill err'>trio ✗</span>"
+        )
+        parts.append(
+            "<h3>Technical Score</h3>"
+            "<table>"
+            "<tr><th>F1 EMA</th><th>F2 Weekly</th><th>F3 HMA</th><th>F4 ADX</th>"
+            "<th>F5 RSI</th><th>F6 RS</th><th>F7 OBV</th><th>F8 ATR%</th>"
+            "<th>Score</th><th>Signal</th></tr>"
+            f"<tr>{factor_cells}"
+            f"<td><b>{tech.score}/8</b> {trio_badge}</td>"
+            f"<td><span class='badge {sig_cls.upper()}'>{_t(tech.signal.value)}</span></td></tr>"
+            "</table>"
+            "<table>"
+            "<tr><th title='Limit entry = spot − 1.5×ATR'>Entry (ATR)</th>"
+            "<th title='Stop = entry − 2.5×ATR'>Stop</th>"
+            "<th title='Target = entry + 4.0×ATR'>Target</th>"
+            "<th>ATR%</th><th>RSI(14)</th><th>ADX(14)</th></tr>"
+            f"<tr><td>${tech.entry:.2f}</td><td>${tech.stop:.2f}</td>"
+            f"<td>${tech.target:.2f}</td>"
+            f"<td>{tech.atr_pct:.1f}%</td>"
+            f"<td>{tech.rsi:.1f}</td><td>{tech.adx:.1f}</td></tr>"
+            "</table>"
+        )
+        if tech.recommended_structure:
+            parts.append(
+                f"<p class='muted'>Suggested structure: <b>{_t(tech.recommended_structure)}</b> "
+                "(based on VRP heuristic — final structure determined by IVR regime)</p>"
+            )
+
+    # ── vol context + regime ────────────────────────────────────────
+    if result.atm_iv is not None or result.rv20 is not None or result.stock_regime is not None:
+        sr = result.stock_regime
+        state_val = sr.state.value if sr else "—"
+        state_cls = ("ok" if sr and "RICH" in state_val else
+                     ("warn" if sr and "FAIR" in state_val else
+                      ("err" if sr and ("THIN" in state_val or "BLACKOUT" in state_val) else "")))
+        vrp_str = (f"{result.vrp:+.1f}v" if result.vrp is not None else "—")
+        atm_str = (f"{result.atm_iv:.1f}%" if result.atm_iv is not None else "—")
+        rv_str = (f"{result.rv20:.1f}%" if result.rv20 is not None else "—")
+        ivr_str = (f"{result.ivr:.0f}" if result.ivr is not None else "—")
+        sell_ok = sr.sell_premium_ok if sr else None
+        sell_badge = (
+            "<span class='pill ok'>sell ok</span>" if sell_ok
+            else "<span class='pill err'>no sell</span>"
+        ) if sell_ok is not None else ""
+        parts.append(
+            "<h3>Volatility Context</h3>"
+            "<table>"
+            "<tr><th title='30-day ATM implied vol (from chain)'>ATM IV (30d)</th>"
+            "<th title='20-day realized vol'>RV20</th>"
+            "<th title='ATM IV − RV20 (positive = implied rich)'>VRP</th>"
+            "<th title='Realized-vol rank proxy for IVR'>IVR proxy</th>"
+            "<th>Regime</th></tr>"
+            f"<tr><td>{_t(atm_str)}</td><td>{_t(rv_str)}</td>"
+            f"<td class=\"{'ok' if result.vrp and result.vrp > 3 else ('err' if result.vrp and result.vrp < 0 else '')}\">"
+            f"{_t(vrp_str)}</td>"
+            f"<td>{_t(ivr_str)}</td>"
+            f"<td class='{state_cls}'>{_t(state_val)} {sell_badge}</td></tr>"
+            "</table>"
+        )
+
+    # ── strategy cards ──────────────────────────────────────────────
+    if result.cards:
+        parts.append("<h3>Strategy Cards <span class='muted' style='font-size:0.8rem'>"
+                     "(hypothetical — scout accounts, $100k NLV)</span></h3>")
+        acct_labels = {"SCOUT-TRADING": "Trading", "SCOUT-SMSF": "SMSF"}
+        for account_id, cards in result.cards.items():
+            if not cards:
+                continue
+            label = acct_labels.get(account_id, account_id)
+            parts.append(f"<p class='section-label'>{_t(label)}</p>")
+            parts.append("<div class='cards-grid'>")
+            for c in cards:
+                parts.append(_scout_card_html(c))
+            parts.append("</div>")
+    elif result.tech is not None:
+        parts.append("<p class='muted'>No option chain data — cards require a live market session.</p>")
+
+    return "".join(parts)
+
+
+def render_scout(_state: AppState) -> str:
+    body = (
+        "<p class='muted'>Enter any ticker to run an on-demand analysis: "
+        "8-factor technical score, volatility context, and Keystone strategy cards. "
+        "Fetches live data from yfinance — not affected by mock/live mode.</p>"
+        "<div style='display:flex;gap:12px;align-items:flex-end;margin:16px 0'>"
+        "<div><label style='display:block;font-size:0.82rem;color:var(--muted);"
+        "text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px'>Ticker</label>"
+        "<input id='scout-ticker' type='text' placeholder='AAPL, NVDA, SPY ...' "
+        "style='width:200px;font-size:1rem' autocomplete='off' autocapitalize='characters'></div>"
+        "<button id='scout-btn' onclick='runScout()'>Analyse →</button>"
+        "</div>"
+        "<div id='scout-result'></div>"
+        "<script>"
+        "async function runScout() {"
+        "  const ticker = document.getElementById('scout-ticker').value.trim().toUpperCase();"
+        "  if (!ticker) return;"
+        "  const btn = document.getElementById('scout-btn');"
+        "  const out = document.getElementById('scout-result');"
+        "  btn.disabled = true; btn.textContent = 'Analysing…';"
+        "  out.innerHTML = \"<p class='muted'>Fetching data for \" + ticker + \"…</p>\";"
+        "  try {"
+        "    const res = await fetch('/scout/analyse', {"
+        "      method: 'POST',"
+        "      headers: {'Content-Type': 'application/json'},"
+        "      body: JSON.stringify({ticker})"
+        "    });"
+        "    const data = await res.json();"
+        "    if (data.ok) {"
+        "      out.innerHTML = \"<h2>\" + data.ticker + \" — Scout Result</h2>\" + data.html;"
+        "    } else {"
+        "      out.innerHTML = \"<p class='err'>\" + (data.error || 'Analysis failed') + '</p>';"
+        "    }"
+        "  } catch(e) {"
+        "    out.innerHTML = \"<p class='err'>Request failed: \" + e.message + '</p>';"
+        "  } finally {"
+        "    btn.disabled = false; btn.textContent = 'Analyse →';"
+        "  }"
+        "}"
+        "document.getElementById('scout-ticker').addEventListener('keydown', function(e) {"
+        "  if (e.key === 'Enter') runScout();"
+        "});"
+        "</script>"
+    )
+    return _page("Scout", body)
+
+
 _RENDERERS = {
     "dashboard": render_dashboard,
     "book": render_book,
@@ -839,6 +1040,7 @@ _RENDERERS = {
     "smsf": render_smsf,
     "stress": render_stress,
     "governor": render_governor,
+    "scout": render_scout,
     "guide": render_guide,
 }
 
@@ -1074,6 +1276,28 @@ def create_app(
             f"<p>{os_link}<a href='/'>back to candidates</a></p>"
         )
         return _page("Stage to TWS", body)
+
+    # --- scout: on-demand single-ticker analysis -------------------------- #
+    @app.post("/scout/analyse")
+    def scout_analyse() -> Any:
+        from selection.scout import run_scout
+
+        body = request.get_json(silent=True) or {}
+        ticker = str(body.get("ticker", "")).strip().upper()
+        if not ticker:
+            return jsonify(ok=False, error="ticker required")
+
+        market_regime = None
+        try:
+            market_regime = _effective_state(app).market_regime
+        except Exception:  # noqa: BLE001
+            pass
+
+        result = run_scout(ticker, market_regime=market_regime)
+        if result.error:
+            return jsonify(ok=False, error=result.error)
+
+        return jsonify(ok=True, ticker=ticker, html=_render_scout_result(result))
 
     return app
 

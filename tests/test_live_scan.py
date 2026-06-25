@@ -13,7 +13,7 @@ from core.yf_chain import atm_iv_points, build_chain_from_rows
 from portfolio.account_profiles import AccountProfile, BlockedRule, Pool
 from core.models import InstrumentClass
 from regime.live import fetch_market_regime
-from selection.live_scan import build_scan_targets, run_checkpoint
+from selection.live_scan import build_scan_targets, build_stock_regime_live, run_checkpoint
 from selection.ranker import TRADING_FAMILIES
 
 ASOF = date.today()
@@ -146,3 +146,59 @@ def test_build_scan_targets():
     targets = build_scan_targets([trading, smsf], trading_watchlist=["SPY", "AAPL"], smsf_watchlist=["XLE"])
     assert ("T1", "SPY") in targets and ("T1", "AAPL") in targets
     assert ("S1", "XLE") in targets
+
+
+# --------------------------------------------------------------------------- #
+# Real IVR wiring (iv_history parameter)
+# --------------------------------------------------------------------------- #
+
+def _real_iv_series(n: int = 252, base: float = 0.20) -> list[float]:
+    """Synthetic 1yr daily IV series: rising then falling, all positive."""
+    return [base + 0.10 * abs((i - n // 2) / (n // 2)) for i in range(n)]
+
+
+def test_build_stock_regime_live_uses_real_ivr_when_provided():
+    """When iv_history is supplied, IVR must come from iv_rank, not realized_vol_rank."""
+    from regime.vol_history import iv_rank
+
+    closes = [100 + 0.2 * i for i in range(260)]
+    iv_hist = _real_iv_series()
+    expected_ivr = iv_rank(iv_hist)
+
+    chain = _dense_chain()
+    sr = build_stock_regime_live("AAPL", chain, closes, ASOF, iv_history=iv_hist)
+    assert sr.ivr == pytest.approx(expected_ivr, abs=0.01)
+
+
+def test_build_stock_regime_live_falls_back_without_iv_history():
+    """Without iv_history, IVR falls back to realized_vol_rank (no crash)."""
+    closes = [100 + 0.03 * i for i in range(260)]
+    chain = _dense_chain()
+    sr = build_stock_regime_live("AAPL", chain, closes, ASOF)
+    assert 0.0 <= sr.ivr <= 100.0
+
+
+def test_run_checkpoint_uses_iv_history_provider():
+    """iv_history_provider is called per symbol and its result feeds the IVR."""
+    from regime.vol_history import iv_rank
+
+    spy = [100 + 0.2 * i for i in range(260)]
+    md = FakeMD(
+        {"^VIX": 15.0, "^VIX9D": 14.0, "^VIX3M": 17.0},
+        {"SPY": _bars(spy), "AAPL": _bars(_high_vol_closes())},
+    )
+    trading = AccountProfile("T1", "Trading 1", Pool.TRADING, nlv=100_000.0)
+    iv_hist = _real_iv_series()
+    called_for: list[str] = []
+
+    def fake_iv_provider(symbol: str):
+        called_for.append(symbol)
+        return iv_hist
+
+    result = run_checkpoint(
+        [trading], [("T1", "AAPL")],
+        market_data=md, chain_provider=lambda s: _dense_chain(s) if s == "AAPL" else None,
+        get_earnings=None, iv_history_provider=fake_iv_provider, asof=ASOF,
+    )
+    assert "AAPL" in called_for
+    assert result.screened["AAPL"]["ivr"] == pytest.approx(iv_rank(iv_hist), abs=1.0)

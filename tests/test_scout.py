@@ -266,3 +266,25 @@ class TestScout:
         data = _uptrend_ohlc(100)
         r = run_scout("AAPL", ohlc_override=data, chain_override=None)
         assert r.spot == pytest.approx(data["closes"][-1], rel=1e-6)
+
+    def test_iv_history_provider_sets_real_ivr(self):
+        """When iv_history_provider is given, ivr_is_real=True and IVR comes from iv_rank."""
+        from regime.vol_history import iv_rank
+
+        n = 252
+        iv_hist = [0.20 + 0.10 * abs((i - n // 2) / (n // 2)) for i in range(n)]
+        expected = iv_rank(iv_hist)
+
+        data = _uptrend_ohlc()
+        chain = _fixture_chain()
+        r = run_scout("AAPL", ohlc_override=data, chain_override=chain,
+                      iv_history_provider=lambda _ticker: iv_hist)
+        assert r.ivr_is_real is True
+        assert r.ivr == pytest.approx(expected, abs=0.01)
+
+    def test_no_iv_provider_gives_proxy_ivr(self):
+        """Without iv_history_provider, ivr_is_real stays False."""
+        data = _uptrend_ohlc()
+        r = run_scout("AAPL", ohlc_override=data, chain_override=_fixture_chain())
+        assert r.ivr_is_real is False
+        assert r.ivr is not None

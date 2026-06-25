@@ -45,6 +45,7 @@ class ScoutResult:
     stock_regime: Optional[StockRegime] = None
     cards: dict[str, list] = field(default_factory=dict)
     ivr: Optional[float] = None
+    ivr_is_real: bool = False         # True when IVR came from TWS IV history
     atm_iv: Optional[float] = None   # percent  (e.g. 25.0 for 25%)
     rv20: Optional[float] = None     # percent  (e.g. 18.0 for 18%)
     vrp: Optional[float] = None      # vol-points (e.g. 7.0 for 7v)
@@ -60,6 +61,7 @@ def run_scout(
     asof: Optional[date] = None,
     chain_override: Optional[Any] = None,
     ohlc_override: Optional[dict] = None,
+    iv_history_provider: Optional[Any] = None,
 ) -> ScoutResult:
     """Analyse a single ticker.
 
@@ -128,13 +130,14 @@ def run_scout(
     rv20_pct: Optional[float] = None
     vrp_pct: Optional[float] = None
     ivr_val: Optional[float] = None
+    ivr_is_real: bool = False
     vrp_decimal: Optional[float] = None
 
     if chain is not None:
         from core.yf_chain import atm_iv_points  # noqa: PLC0415
         from regime.stock_regime import stock_regime as _build_sr  # noqa: PLC0415
         from regime.surface import build_surface  # noqa: PLC0415
-        from regime.vol_history import realized_vol, realized_vol_rank  # noqa: PLC0415
+        from regime.vol_history import iv_rank, realized_vol, realized_vol_rank  # noqa: PLC0415
 
         points = atm_iv_points(chain, asof)
         surface = build_surface(ticker, points) if points else None
@@ -149,7 +152,16 @@ def run_scout(
             vrp_pct = atm_iv_pct - rv20_pct
             vrp_decimal = vrp_pct / 100.0
 
-        ivr_val = realized_vol_rank(closes) or 50.0
+        if iv_history_provider is not None:
+            try:
+                iv_hist = iv_history_provider(ticker)
+                if iv_hist and len(iv_hist) >= 2:
+                    ivr_val = iv_rank(iv_hist)
+                    ivr_is_real = True
+            except Exception:  # noqa: BLE001
+                pass
+        if ivr_val is None:
+            ivr_val = realized_vol_rank(closes) or 50.0
 
         if surface:
             vrp_raw = surface.iv_30d - (rv or 0.0)
@@ -184,5 +196,6 @@ def run_scout(
 
     return ScoutResult(
         ticker=ticker, spot=spot, tech=tech, stock_regime=sr, cards=cards,
-        ivr=ivr_val, atm_iv=atm_iv_pct, rv20=rv20_pct, vrp=vrp_pct,
+        ivr=ivr_val, ivr_is_real=ivr_is_real,
+        atm_iv=atm_iv_pct, rv20=rv20_pct, vrp=vrp_pct,
     )

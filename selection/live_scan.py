@@ -21,7 +21,7 @@ from portfolio.account_profiles import AccountProfile, classify
 from regime.live import fetch_market_regime
 from regime.stock_regime import StockRegime, stock_regime
 from regime.surface import Surface, build_surface
-from regime.vol_history import realized_vol, realized_vol_rank
+from regime.vol_history import iv_rank, realized_vol, realized_vol_rank
 from selection.ranker import rank
 from strategies.trend_filter import TrendState, trend_state
 from universe.seed import by_ticker
@@ -56,17 +56,24 @@ def build_stock_regime_live(
     asof: date,
     *,
     days_to_earnings: Optional[int] = None,
+    iv_history: Optional[list[float]] = None,
 ) -> StockRegime:
-    """Per-stock regime from a live chain + price history (free-data friendly)."""
+    """Per-stock regime from a live chain + price history.
+
+    ``iv_history``: 1yr daily OPTION_IMPLIED_VOLATILITY series from TWS.  When
+    provided, IVR is computed from real implied-vol history (``iv_rank``).
+    When absent, falls back to ``realized_vol_rank`` as a free-data proxy.
+    """
 
     points = atm_iv_points(chain, asof)
     surface = build_surface(symbol, points) if points else _flat_surface(symbol)
     iv30 = surface.iv_30d
     rv20 = realized_vol(closes) or 0.0
     vrp_value = iv30 - rv20
-    ivr = realized_vol_rank(closes)
-    if ivr is None:
-        ivr = 50.0  # neutral when history is too short to rank
+    if iv_history and len(iv_history) >= 2:
+        ivr = iv_rank(iv_history)
+    else:
+        ivr = realized_vol_rank(closes) or 50.0
     return stock_regime(symbol, surface, ivr, vrp_value, days_to_earnings=days_to_earnings)
 
 
@@ -100,6 +107,7 @@ def run_checkpoint(
     get_earnings: Optional[Callable[[str], Any]] = None,
     acquire_below: Optional[dict[str, float]] = None,
     nlv_overrides: Optional[dict[str, float]] = None,
+    iv_history_provider: Optional[Callable[[str], Optional[list[float]]]] = None,
     asof: Optional[date] = None,
     cfg: Optional[RiskConfig] = None,
     top_n: int = 5,
@@ -141,7 +149,15 @@ def run_checkpoint(
                 earnings_date = ev.date
                 days_to_earnings = (ev.date - asof).days
 
-        sr = build_stock_regime_live(symbol, chain, closes, asof, days_to_earnings=days_to_earnings)
+        iv_hist: Optional[list[float]] = None
+        if iv_history_provider is not None:
+            try:
+                iv_hist = iv_history_provider(symbol)
+            except Exception:  # noqa: BLE001
+                pass
+        sr = build_stock_regime_live(symbol, chain, closes, asof,
+                                     days_to_earnings=days_to_earnings,
+                                     iv_history=iv_hist)
         trend = trend_state(closes) if len(closes) >= 220 else TrendState.NONE
 
         seed = by_ticker(symbol)

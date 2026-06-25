@@ -950,17 +950,20 @@ def _render_scout_result(result: Any) -> str:
             "<span class='pill ok'>sell ok</span>" if sell_ok
             else "<span class='pill err'>no sell</span>"
         ) if sell_ok is not None else ""
+        ivr_th = ("<th title='IVR from TWS 1yr IV history'>IVR (TWS)</th>"
+                  if result.ivr_is_real
+                  else "<th title='Realized-vol rank proxy for IVR'>IVR proxy</th>")
+        vrp_cls = "ok" if result.vrp and result.vrp > 3 else ("err" if result.vrp and result.vrp < 0 else "")
         parts.append(
             "<h3>Volatility Context</h3>"
             "<table>"
-            "<tr><th title='30-day ATM implied vol (from chain)'>ATM IV (30d)</th>"
-            "<th title='20-day realized vol'>RV20</th>"
-            "<th title='ATM IV − RV20 (positive = implied rich)'>VRP</th>"
-            "<th title='Realized-vol rank proxy for IVR'>IVR proxy</th>"
-            "<th>Regime</th></tr>"
+            f"<tr><th title='30-day ATM implied vol (from chain)'>ATM IV (30d)</th>"
+            f"<th title='20-day realized vol'>RV20</th>"
+            f"<th title='ATM IV − RV20 (positive = implied rich)'>VRP</th>"
+            f"{ivr_th}"
+            f"<th>Regime</th></tr>"
             f"<tr><td>{_t(atm_str)}</td><td>{_t(rv_str)}</td>"
-            f"<td class=\"{'ok' if result.vrp and result.vrp > 3 else ('err' if result.vrp and result.vrp < 0 else '')}\">"
-            f"{_t(vrp_str)}</td>"
+            f"<td class='{vrp_cls}'>{_t(vrp_str)}</td>"
             f"<td>{_t(ivr_str)}</td>"
             f"<td class='{state_cls}'>{_t(state_val)} {sell_badge}</td></tr>"
             "</table>"
@@ -1194,7 +1197,7 @@ def create_app(
         if app.config.get("KEYSTONE_MODE") != "live":
             return redirect("/")  # mock is already populated
         from config.loader import load_config
-        from core.market_data import build_market_data
+        from core.market_data import TwsIVHistoryProvider, build_market_data
         from core.yf_chain import fetch_chain_yf
         from events.earnings import get_next_earnings
         from portfolio.account_profiles import from_config
@@ -1207,6 +1210,7 @@ def create_app(
                    if h.acquire_below_price}
         targets = build_scan_targets(profiles, smsf_watchlist=smsf_watch)
         md = build_market_data(mode="live")
+        iv_provider = TwsIVHistoryProvider()
 
         nlv_over = {}
         acct, nlv = app.config.get("KEYSTONE_ACCOUNT"), app.config.get("KEYSTONE_ACCOUNT_NLV")
@@ -1215,7 +1219,8 @@ def create_app(
         try:
             result = run_checkpoint(
                 profiles, targets, market_data=md, chain_provider=fetch_chain_yf,
-                get_earnings=get_next_earnings, acquire_below=acquire, nlv_overrides=nlv_over, top_n=5,
+                get_earnings=get_next_earnings, acquire_below=acquire, nlv_overrides=nlv_over,
+                iv_history_provider=iv_provider.fetch, top_n=5,
             )
         except Exception as exc:  # noqa: BLE001
             return _page("Weekly Checkpoint",
@@ -1293,7 +1298,12 @@ def create_app(
         except Exception:  # noqa: BLE001
             pass
 
-        result = run_scout(ticker, market_regime=market_regime)
+        iv_prov = None
+        if app.config.get("KEYSTONE_MODE") == "live":
+            from core.market_data import TwsIVHistoryProvider
+            iv_prov = TwsIVHistoryProvider().fetch
+
+        result = run_scout(ticker, market_regime=market_regime, iv_history_provider=iv_prov)
         if result.error:
             return jsonify(ok=False, error=result.error)
 

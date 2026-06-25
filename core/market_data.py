@@ -181,6 +181,45 @@ class MarketData:
         return None
 
 
+class TwsIVHistoryProvider:
+    """Fetches 1yr daily OPTION_IMPLIED_VOLATILITY bars from TWS.
+
+    Historical IV bars don't require a live market-data subscription — they use
+    reqHistoricalData(whatToShow=OPTION_IMPLIED_VOLATILITY), same pacing budget
+    as TRADES history. Returns None on any failure so callers fall back to
+    realized_vol_rank().
+    """
+
+    name = "tws_iv"
+
+    def __init__(self, host: Optional[str] = None, port: Optional[int] = None) -> None:
+        self.host = host
+        self.port = port
+
+    def fetch(self, symbol: str) -> Optional[list[float]]:
+        from core.ib_client import ib_module, with_ib
+
+        def job(ib: Any) -> list[float]:
+            contract = ib_module().Stock(symbol, "SMART", "USD")
+            ib.qualifyContracts(contract)
+            bars = ib.reqHistoricalData(
+                contract, "",
+                durationStr="1 Y",
+                barSizeSetting="1 day",
+                whatToShow="OPTION_IMPLIED_VOLATILITY",
+                useRTH=True,
+                formatDate=1,
+            )
+            return [float(b.close) for b in bars] if bars else []
+
+        try:
+            result = with_ib(job, self.host, self.port)
+            return result if result else None
+        except Exception as exc:  # noqa: BLE001
+            logger.info("TWS IV history for %s unavailable: %s", symbol, exc)
+            return None
+
+
 def build_market_data(
     *,
     mode: str = "auto",
